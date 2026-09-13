@@ -36,9 +36,9 @@ fi
 
 mkdir -p "$BIN_DIR"
 
-# dirsesh-extras is linked too, not as a convenience: a bare `dirsesh at`
-# with no path calls `dirsesh-extras pick-repo` for its default picker, so
-# dirsesh is only whole when both are on PATH.
+# dirsesh-extras is linked too: its pickers are what you substitute into
+# `dirsesh at`, so it is only reachable from a shell alias or a tmux bind if
+# it is on PATH under its own name.
 for prog in dirsesh dirsesh-extras; do
     src="$DIRSESH_HOME/$prog"
     dest="$BIN_DIR/$prog"

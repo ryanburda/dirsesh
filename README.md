@@ -37,15 +37,6 @@ dirsesh at "$(git worktree list | fzf | awk '{print $1}')"
 dirsesh at "$(zoxide query -i)"
 ```
 
-Or leave `path` blank and dirsesh will fuzzy-find one for you:
-
-```bash
-dirsesh at
-```
-
-The default command walks `$HOME` (up to 5 levels deep, skipping hidden directories)
-for git repos and hands them to `fzf`.
-
 ### Session creation
 
 Once a directory is passed to `dirsesh at <path>`, every session is created the same way:
@@ -105,8 +96,8 @@ dirsesh - One configurable tmux session per directory
 Usage:
   dirsesh                                        # Show help message
 
-  dirsesh at [path] [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
-    path                                         # Defaults to a fuzzy-find of git repos under $HOME
+  dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
+    path                                         # The directory to start the session at
     -noconfig                                    # Ignore any configuration claiming that path
     -name[=NAME]                                 # Name the session; prompts for one if NAME is not given
 

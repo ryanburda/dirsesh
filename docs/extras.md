@@ -96,8 +96,6 @@ Git repositories under `$HOME`, handed to `fzf`.
 dirsesh at "$(dirsesh-extras pick-repo)"
 ```
 
-This is the default picker — a bare `dirsesh at` runs exactly this.
-
 The walk is bounded at 5 levels deep and prunes `.git`, `node_modules` and every hidden
 directory, so it stays fast and does not descend into a dependency that vendored its own
 repository. Repositories are found by their `.git` rather than by asking each directory whether
