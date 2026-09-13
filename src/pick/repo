@@ -118,47 +118,66 @@ git_repo_row() {
   # Args:
   #   $1: dir: the repository to inspect
   local dir="$1"
-  local branch ahead behind stats added removed untracked
-
-  git -C "$dir" rev-parse --git-dir > /dev/null 2>&1 || return 1
+  local state branch="(detached)" ahead=0 behind=0 stats added=0 removed=0 untracked=0
 
   [ -n "$PICK_REPO_FETCH" ] && git -C "$dir" fetch --quiet 2>/dev/null
 
-  # Empty on a detached HEAD, which is still worth showing when it is dirty.
-  branch=$(git -C "$dir" branch --show-current 2>/dev/null)
-  [ -n "$branch" ] || branch="(detached)"
+  # One `git status` for the branch, the ahead/behind counts and the untracked
+  # files. Asking for each of those separately is the obvious way to write this
+  # and costs four git processes instead of one; a picker opens on a keypress,
+  # so the difference is the whole of the wait on a $HOME full of repositories.
+  #
+  # Failing is the guard that this is a repository at all -- it is also how a
+  # repository deleted between the walk and here drops out.
+  #
+  # --porcelain=v2 is a format git keeps stable for scripts, unlike the text
+  # `git status` prints for people. --no-optional-locks so a picker never
+  # writes a refreshed index behind the back of whatever else is using the
+  # repository. --untracked-files=normal because status.showUntrackedFiles=no
+  # would otherwise silently report none, and this has to match what
+  # `git status` shows a person rather than what they configured it to say.
+  state=$(git --no-optional-locks -C "$dir" status \
+    --porcelain=v2 --branch --untracked-files=normal 2>/dev/null) || return 1
 
-  # With no upstream both counts come out 0, so a repository whose branch has
-  # never been pushed counts as waiting only if it has uncommitted work.
-  # Without -fetch these are counted against the upstream ref as it stands on
-  # disk, which is as current as the last fetch made it.
-  ahead=$(git -C "$dir" log @{u}..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
-  behind=$(git -C "$dir" log HEAD..@{u} --oneline 2>/dev/null | wc -l | tr -d ' ')
+  local line ab
+  while IFS= read -r line; do
+    case "$line" in
+      # `(detached)` is what git itself prints here, and what is wanted.
+      '# branch.head '*) branch="${line#\# branch.head }" ;;
+      # `+<ahead> -<behind>`, and absent entirely when there is no upstream --
+      # which is why both counts start at 0. Without -fetch they are counted
+      # against the upstream ref as it stands on disk, which is as current as
+      # the last fetch made it.
+      '# branch.ab '*)
+        ab="${line#\# branch.ab }"
+        ahead="${ab%% *}"; ahead="${ahead#+}"
+        behind="${ab##* }"; behind="${behind#-}"
+        ;;
+      # One line per untracked path, a new directory collapsed to one entry --
+      # what `git status` itself shows.
+      '? '*) untracked=$((untracked + 1)) ;;
+    esac
+  done <<< "$state"
 
-  # Against HEAD rather than the index, so staged work counts as a change too.
-  # Before the first commit there is no HEAD to compare against, and the index
-  # is measured against the empty tree instead.
-  if git -C "$dir" rev-parse --verify -q HEAD > /dev/null 2>&1; then
-    stats=$(git -C "$dir" diff HEAD --shortstat 2>/dev/null)
-  else
-    stats=$(git -C "$dir" diff --cached --shortstat 2>/dev/null)
-  fi
-  added=$(echo "$stats" | grep -o '[0-9]* insertion' | grep -o '[0-9]*')
-  removed=$(echo "$stats" | grep -o '[0-9]* deletion' | grep -o '[0-9]*')
+  # Line counts are the one thing status does not carry. Against HEAD rather
+  # than the index, so staged work counts as a change too; before the first
+  # commit there is no HEAD to compare against, and the failure is what selects
+  # the index against the empty tree instead.
+  stats=$(git -C "$dir" diff HEAD --shortstat 2>/dev/null) \
+    || stats=$(git -C "$dir" diff --cached --shortstat 2>/dev/null)
 
-  # --exclude-standard so ignored files stay ignored, and --directory so a new
-  # directory counts once instead of once per file inside it -- both what
-  # `git status` itself shows.
-  untracked=$(git -C "$dir" ls-files --others --exclude-standard --directory \
-    --no-empty-directory 2>/dev/null | wc -l | tr -d ' ')
+  # bash's own regex rather than a pipeline: `echo | grep | grep` twice is four
+  # processes per repository to read two numbers already in hand.
+  [[ "$stats" =~ ([0-9]+)\ insertion ]] && added="${BASH_REMATCH[1]}"
+  [[ "$stats" =~ ([0-9]+)\ deletion ]] && removed="${BASH_REMATCH[1]}"
 
   # Nothing waiting, nothing unpushed, nothing uncommitted, nothing new. That
   # is what -filter drops; without it the repository still belongs on the list,
   # and -brief shows it as its branch alone.
   local waiting=1
-  [ "${ahead:-0}" -gt 0 ] || [ "${behind:-0}" -gt 0 ] \
-    || [ "${added:-0}" -gt 0 ] || [ "${removed:-0}" -gt 0 ] \
-    || [ "${untracked:-0}" -gt 0 ] || waiting=0
+  [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ] \
+    || [ "$added" -gt 0 ] || [ "$removed" -gt 0 ] \
+    || [ "$untracked" -gt 0 ] || waiting=0
 
   [ -n "$PICK_REPO_FILTER" ] && [ "$waiting" -eq 0 ] && return 1
 
@@ -172,11 +191,11 @@ git_repo_row() {
   local blue='\033[34m' yellow='\033[33m' green='\033[32m' red='\033[31m'
   local cyan='\033[36m' reset='\033[0m'
   local brief="${blue}${branch}${reset}"
-  [ "${ahead:-0}" -gt 0 ] && brief+=" ${yellow}↑${ahead}${reset}"
-  [ "${behind:-0}" -gt 0 ] && brief+=" ${yellow}↓${behind}${reset}"
-  [ "${added:-0}" -gt 0 ] && brief+=" ${green}+${added}${reset}"
-  [ "${removed:-0}" -gt 0 ] && brief+=" ${red}-${removed}${reset}"
-  [ "${untracked:-0}" -gt 0 ] && brief+=" ${cyan}?${untracked}${reset}"
+  [ "$ahead" -gt 0 ] && brief+=" ${yellow}↑${ahead}${reset}"
+  [ "$behind" -gt 0 ] && brief+=" ${yellow}↓${behind}${reset}"
+  [ "$added" -gt 0 ] && brief+=" ${green}+${added}${reset}"
+  [ "$removed" -gt 0 ] && brief+=" ${red}-${removed}${reset}"
+  [ "$untracked" -gt 0 ] && brief+=" ${cyan}?${untracked}${reset}"
 
   printf '%s\t%s  %b\n' "$dir" "$dir" "$brief"
 }
