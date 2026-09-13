@@ -36,18 +36,23 @@ fi
 
 mkdir -p "$BIN_DIR"
 
-src="$DIRSESH_HOME/dirsesh"
-dest="$BIN_DIR/dirsesh"
+# dirsesh-extras is linked too, not as a convenience: a bare `dirsesh at`
+# with no path calls `dirsesh-extras pick-repo` for its default picker, so
+# dirsesh is only whole when both are on PATH.
+for prog in dirsesh dirsesh-extras; do
+    src="$DIRSESH_HOME/$prog"
+    dest="$BIN_DIR/$prog"
 
-[ -f "$src" ] || die "expected $src to exist"
+    [ -f "$src" ] || die "expected $src to exist"
 
-if [ -e "$dest" ] && [ ! -L "$dest" ]; then
-    die "$dest exists and is not a symlink; remove it and retry"
-fi
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        die "$dest exists and is not a symlink; remove it and retry"
+    fi
 
-chmod +x "$src"
-ln -sfn "$src" "$dest"
-echo "Linked $dest -> $src"
+    chmod +x "$src"
+    ln -sfn "$src" "$dest"
+    echo "Linked $dest -> $src"
+done
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

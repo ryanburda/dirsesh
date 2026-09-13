@@ -11,6 +11,13 @@ note() {
   if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
 }
 
+# fzf is how this prints its answer, so it is checked up front rather than
+# after the walk that finds the candidates.
+if ! command -v fzf > /dev/null 2>&1; then
+  note "Error: fzf is required but was not found on PATH"
+  exit 1
+fi
+
 worktree_data=$(git worktree list --porcelain 2>/dev/null | awk '
   /^worktree / { path = substr($0, 10); branch = "" }
   /^branch / { branch = substr($0, 8); sub("refs/heads/", "", branch) }

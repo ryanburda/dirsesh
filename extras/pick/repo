@@ -9,24 +9,28 @@ note() {
   if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
 }
 
-# Looks for the .git itself rather than asking each directory whether it has
-# one, because .git is not always a directory: a linked worktree, and a
-# checkout of a bare clone, both carry a .git *file* holding a gitdir: line.
-# Matching by name finds those the same way it finds an ordinary clone. The
-# first -prune stops find descending into a .git it has found; the second
-# skips hidden directories, and comes second so that .git is not one of them.
-dirs=$(find "$HOME/code" -name .git -prune -print -o -name ".*" -prune 2>/dev/null \
-  | while IFS= read -r gitpath; do
-      if [ -d "$gitpath" ]; then
-        # No HEAD: a stray directory that happens to be called .git, not a
-        # repository. Bare: a repository with no working tree to open a
-        # session in -- the worktrees checked out beside it are found on
-        # their own, and are what you actually want to sit in.
-        [ -e "$gitpath/HEAD" ] || continue
-        grep -q '^[[:space:]]*bare = true' "$gitpath/config" 2>/dev/null && continue
-      fi
-      printf '%s\n' "${gitpath%/.git}"
-    done | sort)
+# fzf is how this prints its answer, so it is checked up front rather than
+# after the walk that finds the candidates.
+if ! command -v fzf > /dev/null 2>&1; then
+  note "Error: fzf is required but was not found on PATH"
+  exit 1
+fi
+
+# -maxdepth 5 bounds the walk under $HOME; -prune on .git and node_modules
+# stops the descent right after printing a hit, so nested repos (a dependency
+# vendored with its own .git) are not walked into; -prune on every other
+# dot-directory keeps hidden directories -- caches like ~/.cache and ~/.npm,
+# but also ~/.config, ~/.ssh, etc. -- out of the walk entirely. node_modules
+# matches are printed too, only to be pruned from descent, so they are
+# filtered back out below.
+#
+# Matching .git by name rather than asking each directory whether it has one,
+# because .git is not always a directory: a linked worktree, and a checkout of
+# a bare clone, both carry a .git *file* holding a gitdir: line.
+dirs=$(find "$HOME" -maxdepth 5 \( -name .git -o -name node_modules \) -prune -print -o -name '.*' -prune 2>/dev/null \
+  | grep '/\.git$' \
+  | sed 's#/\.git$##' \
+  | LC_ALL=C sort -u)
 
 if [ -z "$dirs" ]; then
   note "No git repositories found"

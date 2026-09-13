@@ -720,32 +720,6 @@ session_at() {
   switch_or_attach "$session_name"
 }
 
-default_at_cmd() {
-  # dirsesh's own answer for `dirsesh at` given no path: fuzzy-find a git
-  # repo under $HOME. This is what makes a bare `dirsesh at` useful right out
-  # of the box. Anyone who wants a different set of candidates passes their
-  # own command instead: `dirsesh at "$(mycommand)"`.
-  #
-  # Requires fzf.
-  if ! command -v fzf >/dev/null 2>&1; then
-    notify "Error: 'dirsesh at' needs a path; install fzf for the default picker, or pass one yourself: dirsesh at \"\$(mycommand)\""
-    return 1
-  fi
-
-  # -maxdepth 5 bounds the walk under $HOME; -prune on .git and node_modules
-  # stops the descent right after printing a hit, so nested repos (a
-  # dependency vendored with its own .git) are not walked into; -prune on
-  # every other dot-directory keeps hidden directories -- caches like
-  # ~/.cache and ~/.npm, but also ~/.config, ~/.ssh, etc. -- out of the walk
-  # entirely. node_modules matches are printed too, only to be pruned from
-  # descent, so they are filtered back out below.
-  find "$HOME" -maxdepth 5 \( -name .git -o -name node_modules \) -prune -print -o -name '.*' -prune 2>/dev/null \
-    | grep '/\.git$' \
-    | sed 's#/\.git$##' \
-    | LC_ALL=C sort -u \
-    | fzf --cycle --prompt "dirsesh at > "
-}
-
 at_path() {
   # Start a session at a directory, or switch to the session already open there
   local session_flags=() paths=() arg
@@ -768,8 +742,13 @@ at_path() {
   local selected
   if [ "${#paths[@]}" -eq 0 ]; then
     # No path at all, as distinct from one argument that resolved empty
-    # (below): dirsesh picks one itself with its default picker.
-    selected=$(default_at_cmd) || exit 1
+    # (below): dirsesh asks dirsesh-extras for a repo.
+    if ! command -v dirsesh-extras > /dev/null 2>&1; then
+      notify "Error: dirsesh-extras is not on PATH; link it beside dirsesh (install.sh does this), or pass a path yourself: dirsesh at \"\$(mycommand)\""
+      exit 1
+    fi
+
+    selected=$(dirsesh-extras pick-repo) || exit 1
   else
     selected="${paths[0]}"
   fi
