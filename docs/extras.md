@@ -164,8 +164,20 @@ by name rather than by `cd`.
 
 ## Binding them
 
-A picker is worth binding twice — once in your shell for when no tmux server is running, and
-once in tmux for when one is:
+```tmux
+# ~/.config/tmux/tmux.conf
+
+bind-key d popup -E 'dirsesh at "$(dirsesh-extras pick-dir)"'
+bind-key r popup -E 'dirsesh at "$(dirsesh-extras pick-repo)"'
+bind-key R popup -E 'dirsesh at "$(dirsesh-extras pick-repo-brief)"'
+bind-key w popup -E 'dirsesh at "$(dirsesh-extras pick-worktree)"'
+
+bind-key \; run-shell -b "dirsesh-extras last-session"
+bind-key s popup -h 35% -w 40% -E "dirsesh-extras session-switcher"
+```
+
+A picker is worth binding twice — once in `tmux.conf` like the above for when tmux is running,
+and once in your shell for when no tmux server is running:
 
 ```zsh
 # ~/.zshrc
@@ -176,13 +188,5 @@ alias R='dirsesh at "$(dirsesh-extras pick-repo-brief)"'
 alias w='dirsesh at "$(dirsesh-extras pick-worktree)"'
 ```
 
-```tmux
-# ~/.config/tmux/tmux.conf
-
-bind-key d popup -E 'dirsesh at "$(dirsesh-extras pick-dir)"'
-bind-key r popup -E 'dirsesh at "$(dirsesh-extras pick-repo)"'
-bind-key R popup -E 'dirsesh at "$(dirsesh-extras pick-repo-brief)"'
-bind-key w popup -E 'dirsesh at "$(dirsesh-extras pick-worktree)"'
-```
 
 This ensures your muscle memory is similar no matter if you are in or out of tmux.
