@@ -92,6 +92,17 @@ a configuration. Everything else closes exactly as it would on a server with no 
 - configuration scripts are applied at session creation based on the directory
 - tear down scripts are automatically run no matter how the session is killed
 
+### Extras
+
+`dirsesh at` creates sessions. Switching between them and killing them are separate jobs that
+plenty of other tools already do well, so if you have one you like, keep using it.
+
+`dirsesh` does ship with a few other commands for a more well rounded experience:
+- [Pickers](docs/pickers.md)
+- [Bookmarks](docs/bookmark.md)
+- [Session Management](docs/session-management.md)
+
+
 ## Usage
 
 ```bash
@@ -143,20 +154,6 @@ The pickers print a path on stdout, so they compose with `dirsesh at`:
 See https://github.com/ryanburda/tmux-dirsesh for more documentation
 ```
 
-## Extras
-
-`dirsesh at` creates sessions. Switching between them and killing them are separate jobs that
-plenty of other tools already do well, so if you have one you like, keep using it.
-
-If you would rather `dirsesh` be your session manager anyway, the rest of its subcommands are
-the other half:
-- the directory pickers that pair with `dirsesh at`
-- a session switcher/killer that uses fzf
-- a directory bookmarker, one printable character per directory
-- and other handy features
-
-None of them is wired into `dirsesh at`: a picker prints a path and stops, and it is you who
-substitutes that path in. See [Extras](docs/extras.md) and [Bookmarks](docs/bookmark.md).
 
 ## Install
 
@@ -218,9 +215,11 @@ autoload -Uz compinit && compinit
 ```
 </details>
 
+
 ## License
 
 MIT
+
 
 ## Contributing
 

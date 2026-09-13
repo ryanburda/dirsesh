@@ -10,7 +10,8 @@ cd "$(dirsesh bookmark-get m)"
 
 Bookmarks are for the handful of directories you return to constantly. There is no ranking,
 no history and no decay: `m` points where you put it until you put it somewhere else. That
-is the difference between this and the fuzzy pickers beside it, and the reason both are worth having.
+is the difference between this and the [fuzzy pickers](pickers.md) beside it, and the reason
+both are worth having.
 
 `bookmark-get` and `bookmark-pick` print a directory on stdout and nothing else, which is the
 same interface the pickers have, and the whole interface to everything downstream:
