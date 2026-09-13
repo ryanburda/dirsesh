@@ -33,6 +33,8 @@ Usage:
   dirsesh-extras last-session                                            # Switch back to the session you came from
   dirsesh-extras kill-session [session]                                  # Kill a running session
     session                                                              # Kill this one instead of picking
+  dirsesh-extras logs [session]                                          # Browse the logs a dirsesh configuration wrote
+    session                                                              # Browse only this session's logs
 
   dirsesh-extras toggle-window <name> <command...>                       # Switch to a window, creating it if it is not there
     name                                                                 # The window's name, and what it is found by

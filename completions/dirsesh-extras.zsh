@@ -24,6 +24,7 @@ _dirsesh_extras_commands() {
         'session-switcher:Switch to another running session'
         'last-session:Switch back to the session you came from'
         'kill-session:Kill a running session'
+        'logs:Browse the logs a dirsesh configuration wrote'
         'toggle-window:Switch to a window, creating it if it is not there'
         'smart-split:Split the current pane, evenly or small'
         'help:Show help message'
@@ -36,6 +37,15 @@ _dirsesh_extras_sessions() {
     local -a sessions
     sessions=(${(f)"$(tmux list-sessions -F '#{session_name}' 2>/dev/null)"})
     _describe 'session' sessions
+}
+
+_dirsesh_extras_log_sessions() {
+    # The sessions dirsesh has written logs for, which are not always sessions
+    # that are still running.
+    local -a log_sessions
+    local dir="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/logs"
+    log_sessions=(${(f)"$(find $dir -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort)"})
+    _describe 'session' log_sessions
 }
 
 _dirsesh_extras_windows() {
@@ -66,6 +76,12 @@ _dirsesh_extras() {
         session-switcher | kill-session)
             if (( CURRENT == 2 )); then
                 _dirsesh_extras_sessions
+                compadd -- -help
+            fi
+            ;;
+        logs)
+            if (( CURRENT == 2 )); then
+                _dirsesh_extras_log_sessions
                 compadd -- -help
             fi
             ;;

@@ -7,6 +7,14 @@ _dirsesh_extras_sessions() {
     tmux list-sessions -F '#{session_name}' 2>/dev/null
 }
 
+_dirsesh_extras_log_sessions() {
+    # The sessions dirsesh has written logs for, which are not always sessions
+    # that are still running.
+    local dir="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/logs"
+    [ -d "$dir" ] || return 0
+    find "$dir" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort
+}
+
 _dirsesh_extras_windows() {
     # -a: every window on the server, not just the current session's. The
     # window a toggle is looking for is often in the session you are not in.
@@ -20,7 +28,7 @@ _dirsesh_extras_completions() {
     cmd="${COMP_WORDS[1]}"
 
     subcmds="pick-dir pick-repo pick-repo-brief pick-worktree"
-    subcmds="$subcmds session-switcher last-session kill-session"
+    subcmds="$subcmds session-switcher last-session kill-session logs"
     subcmds="$subcmds toggle-window smart-split help"
 
     # Completing the subcommand itself
@@ -36,6 +44,12 @@ _dirsesh_extras_completions() {
             # The one optional argument is a running session.
             [ "$COMP_CWORD" -eq 2 ] || return 0
             COMPREPLY=($(compgen -W "-help $(_dirsesh_extras_sessions)" -- "$cur"))
+            return 0
+            ;;
+        logs)
+            # The one optional argument is a session dirsesh has logged.
+            [ "$COMP_CWORD" -eq 2 ] || return 0
+            COMPREPLY=($(compgen -W "-help $(_dirsesh_extras_log_sessions)" -- "$cur"))
             return 0
             ;;
         toggle-window)

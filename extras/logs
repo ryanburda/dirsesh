@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+# logs: browse the logs a dirsesh configuration wrote, chosen with fzf.
+#
+# Usage: dirsesh-extras logs [session]
+#   session  Browse only this session's logs instead of every session's.
+#
+# Meant to be run from a tmux window or popup:
+#
+#   bind-key L run-shell "dirsesh-extras toggle-window dirsesh-logs 'dirsesh-extras logs'"
+#
+# dirsesh writes a configuration's `start` and `kill` output to
+# $XDG_STATE_HOME/dirsesh/logs/<session>/dirsesh.log, and a configuration may write
+# more files of its own beside it. They are ordinary files, so this picks one
+# and tails it; `tail` or an editor does just as well.
+
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/logs"
+
+notify() {
+  # Show a message: tmux display-message inside tmux, stderr otherwise.
+  local msg="$1"
+  if [ -n "$TMUX" ]; then
+    tmux display-message "$msg"
+  else
+    echo "$msg" >&2
+  fi
+}
+
+session="$1"
+
+# No session given: offer every session's logs.
+if [ -n "$session" ]; then
+  search_dir="$LOG_DIR/$session"
+  if [ ! -d "$search_dir" ]; then
+    notify "Error: No log directory found for session '$session'"
+    exit 1
+  fi
+else
+  search_dir="$LOG_DIR"
+fi
+
+# Listed as "<session>/<file>.log", which is what the preview and the tail
+# below join back onto $LOG_DIR.
+log_files=$(find "$search_dir" -type f -name '*.log' 2>/dev/null | sed "s|^$LOG_DIR/||" | sort)
+
+if [ -z "$log_files" ]; then
+  notify "No log files found"
+  exit 1
+fi
+
+selected=$(echo "$log_files" | fzf \
+  --cycle \
+  --bind=ctrl-d:preview-half-page-down \
+  --bind=ctrl-u:preview-half-page-up \
+  --bind="ctrl-o:execute(${EDITOR:-vi} '$LOG_DIR/{}')" \
+  --prompt "Logs > " \
+  --header $':: \e[33mEnter\e[0m to \e[31mtail\e[0m | \e[33mctrl-o\e[0m to \e[31mopen in editor\e[0m | \e[33mctrl-d\e[0m to \e[31mpreview page down\e[0m | \e[33mctrl-u\e[0m to \e[31mpreview page up\e[0m' \
+  --preview "tail -n 100000 -f '$LOG_DIR/{}'" \
+  --preview-window follow)
+
+[ -n "$selected" ] || exit 0
+
+tail -n 1000 -f "$LOG_DIR/$selected"

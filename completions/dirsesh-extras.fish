@@ -13,6 +13,7 @@ complete -c dirsesh-extras -n '__fish_use_subcommand' -a pick-worktree -d 'Print
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a session-switcher -d 'Switch to another running session'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a last-session -d 'Switch back to the session you came from'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a kill-session -d 'Kill a running session'
+complete -c dirsesh-extras -n '__fish_use_subcommand' -a logs -d 'Browse the logs a dirsesh configuration wrote'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a toggle-window -d 'Switch to a window, creating it if it is not there'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a smart-split -d 'Split the current pane, evenly or small'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a help -d 'Show help message'
@@ -25,7 +26,11 @@ complete -c dirsesh-extras -n '__fish_seen_subcommand_from session-switcher kill
 # toggle is looking for is often in the session you are not in.
 complete -c dirsesh-extras -n '__fish_seen_subcommand_from toggle-window' \
     -xa '(tmux list-windows -a -F "#{window_name}" 2>/dev/null | sort -u)' -d 'Window'
+# The sessions dirsesh has written logs for, which are not always sessions that
+# are still running.
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from logs' \
+    -xa '(find (set -q XDG_STATE_HOME; and echo $XDG_STATE_HOME; or echo $HOME/.local/state)/dirsesh/logs -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort)' -d 'Session'
 complete -c dirsesh-extras -n '__fish_seen_subcommand_from smart-split' -xa '-h -v'
 # Every subcommand documents itself with -help in first position.
-complete -c dirsesh-extras -n '__fish_seen_subcommand_from pick-dir pick-repo pick-repo-brief pick-worktree session-switcher last-session kill-session toggle-window smart-split' \
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from pick-dir pick-repo pick-repo-brief pick-worktree session-switcher last-session kill-session logs toggle-window smart-split' \
     -xa '-help' -d 'Show what this command does, in detail'
