@@ -27,7 +27,6 @@ _dirsesh_commands() {
         'bookmark:Bookmark directories, one printable character each'
         'pick-dir:Print a directory under $HOME'
         'pick-repo:Print a git repository under $HOME'
-        'pick-repo-brief:Print a git repository under $HOME that has changes'
         'pick-worktree:Print a worktree of the current repository'
         'help:Show help message'
     )
@@ -132,6 +131,13 @@ _dirsesh() {
                         ;;
                 esac
             fi
+            ;;
+        pick-repo)
+            _values -s ' ' 'pick-repo options' \
+                '-brief[show what each repository has waiting]' \
+                '-filter[list only repositories that have something waiting]' \
+                '-fetch[fetch first, so the ahead/behind counts are current]'
+            (( CURRENT == 2 )) && compadd -- -help
             ;;
         init | pick-* | session-last)
             (( CURRENT == 2 )) && compadd -- -help

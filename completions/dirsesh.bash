@@ -28,7 +28,7 @@ _dirsesh_completions() {
 
     subcmds="at match init"
     subcmds="$subcmds session-switch session-last session-kill session-logs bookmark"
-    subcmds="$subcmds pick-dir pick-repo pick-repo-brief pick-worktree help"
+    subcmds="$subcmds pick-dir pick-repo pick-worktree help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -83,6 +83,10 @@ _dirsesh_completions() {
                     COMPREPLY=($(compgen -W "-s --style -c --current-style" -- "$cur"))
                     ;;
             esac
+            return 0
+            ;;
+        pick-repo)
+            COMPREPLY=($(compgen -W "-help -brief -filter -fetch" -- "$cur"))
             return 0
             ;;
         init | pick-* | session-last)

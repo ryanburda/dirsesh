@@ -2,7 +2,20 @@
 #
 # pick-repo: print the directory of a git repository under $HOME, chosen with fzf.
 #
-# Usage: dirsesh pick-repo
+# Usage: dirsesh pick-repo [-brief] [-filter] [-fetch]
+#   -brief     Show what each repository has waiting, beside its path
+#   -filter    List only the repositories that have something waiting
+#   -fetch     Fetch every repository first, so the ahead/behind counts are
+#              current. Only means something with -brief or -filter, and is
+#              what makes either slow.
+#
+# The three are independent: -brief says what to show, -filter says what to
+# leave out, and -fetch says how current the remote half of both is.
+#
+#   dirsesh pick-repo                          every repository, path only
+#   dirsesh pick-repo -brief                   every repository, and what it has waiting
+#   dirsesh pick-repo -filter                  only the ones with something waiting
+#   dirsesh pick-repo -brief -filter -fetch    both, against fetched remotes
 #
 # The walk is bounded at 5 levels deep and prunes .git, node_modules and every
 # hidden directory, so it stays fast and does not descend into a dependency
@@ -15,6 +28,38 @@
 # so `git clone --bare repo.git` never appears, and neither does the container
 # of a bare checkout -- the ~/code/project holding .bare and its worktrees. The
 # worktrees themselves are listed, and are what you want a session at.
+#
+# -brief
+#
+#   /home/you/code/api        main ↑2 +41 -7
+#   /home/you/code/dotfiles   main ↓1
+#   /home/you/code/site       draft ↑1 ?3
+#   /home/you/code/tools      main
+#
+#   ↑n     commits ahead of upstream
+#   ↓n     commits behind upstream
+#   +n -n  lines added and removed against HEAD, staged work included
+#   ?n     untracked files, counting a new directory once
+#
+# A repository with none of them shows its branch alone, which is the whole
+# point of -brief without -filter: the quiet ones stay on the list.
+#
+# -filter
+#
+# Keeps only the repositories with something waiting -- any of the counts above
+# above zero -- and heads the list with how many that was out of how many were
+# checked, so a short list is distinguishable from a broken one:
+#
+#   :: 3 of 27 repositories have changes
+#
+# -fetch
+#
+# Everything but ↑ and ↓ is read from the working tree, and is current whether
+# or not you fetch. ↑ and ↓ are counted against the upstream ref as it stands
+# on disk, which is where the last fetch left it -- the same counts `git status`
+# reports, and stale in the same way. -fetch refreshes every repository first so
+# they are not, at the cost of a network round trip per repository, which is the
+# whole of the wait.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
@@ -23,12 +68,118 @@ note() {
   if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
 }
 
+brief="" filter="" fetch=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -brief) brief=1 ;;
+    -filter) filter=1 ;;
+    -fetch) fetch=1 ;;
+    -*)
+      note "Error: Unknown option '$1' for 'dirsesh pick-repo'"
+      exit 1
+      ;;
+    *)
+      note "Error: 'dirsesh pick-repo' takes no arguments"
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+# Fetching is only ever read back through -brief or -filter, so on its own it
+# would open a connection per repository and then show the plain list, which
+# reads none of what was fetched. Refused rather than quietly implying one of
+# them: the flag that was left out is the one that says what to do with it.
+if [ -n "$fetch" ] && [ -z "$brief" ] && [ -z "$filter" ]; then
+  note "Error: '-fetch' only means something with '-brief' or '-filter'"
+  exit 1
+fi
+
 # fzf is how this prints its answer, so it is checked up front rather than
 # after the walk that finds the candidates.
 if ! command -v fzf > /dev/null 2>&1; then
   note "Error: fzf is required but was not found on PATH"
   exit 1
 fi
+
+git_repo_row() {
+  # One fzf row for the repo at $1 -- "<path>\t<what is displayed>" -- or
+  # nothing with a non-zero status when -filter is on and it has nothing
+  # waiting.
+  #
+  # The path is carried in a first column fzf is told not to display, so the
+  # brief can be coloured without the selection having to be parsed back out.
+  #
+  # The flags arrive in the environment rather than as arguments, because xargs
+  # calls this one repository at a time. Under -fetch the fetch happens here
+  # rather than in a pass of its own, so one job both fetches and inspects a
+  # repository and there is no barrier between the two.
+  #
+  # Args:
+  #   $1: dir: the repository to inspect
+  local dir="$1"
+  local branch ahead behind stats added removed untracked
+
+  git -C "$dir" rev-parse --git-dir > /dev/null 2>&1 || return 1
+
+  [ -n "$PICK_REPO_FETCH" ] && git -C "$dir" fetch --quiet 2>/dev/null
+
+  # Empty on a detached HEAD, which is still worth showing when it is dirty.
+  branch=$(git -C "$dir" branch --show-current 2>/dev/null)
+  [ -n "$branch" ] || branch="(detached)"
+
+  # With no upstream both counts come out 0, so a repository whose branch has
+  # never been pushed counts as waiting only if it has uncommitted work.
+  # Without -fetch these are counted against the upstream ref as it stands on
+  # disk, which is as current as the last fetch made it.
+  ahead=$(git -C "$dir" log @{u}..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
+  behind=$(git -C "$dir" log HEAD..@{u} --oneline 2>/dev/null | wc -l | tr -d ' ')
+
+  # Against HEAD rather than the index, so staged work counts as a change too.
+  # Before the first commit there is no HEAD to compare against, and the index
+  # is measured against the empty tree instead.
+  if git -C "$dir" rev-parse --verify -q HEAD > /dev/null 2>&1; then
+    stats=$(git -C "$dir" diff HEAD --shortstat 2>/dev/null)
+  else
+    stats=$(git -C "$dir" diff --cached --shortstat 2>/dev/null)
+  fi
+  added=$(echo "$stats" | grep -o '[0-9]* insertion' | grep -o '[0-9]*')
+  removed=$(echo "$stats" | grep -o '[0-9]* deletion' | grep -o '[0-9]*')
+
+  # --exclude-standard so ignored files stay ignored, and --directory so a new
+  # directory counts once instead of once per file inside it -- both what
+  # `git status` itself shows.
+  untracked=$(git -C "$dir" ls-files --others --exclude-standard --directory \
+    --no-empty-directory 2>/dev/null | wc -l | tr -d ' ')
+
+  # Nothing waiting, nothing unpushed, nothing uncommitted, nothing new. That
+  # is what -filter drops; without it the repository still belongs on the list,
+  # and -brief shows it as its branch alone.
+  local waiting=1
+  [ "${ahead:-0}" -gt 0 ] || [ "${behind:-0}" -gt 0 ] \
+    || [ "${added:-0}" -gt 0 ] || [ "${removed:-0}" -gt 0 ] \
+    || [ "${untracked:-0}" -gt 0 ] || waiting=0
+
+  [ -n "$PICK_REPO_FILTER" ] && [ "$waiting" -eq 0 ] && return 1
+
+  # -filter on its own narrows the list without decorating it, so the row is
+  # the path twice and nothing more.
+  if [ -z "$PICK_REPO_BRIEF" ]; then
+    printf '%s\t%s\n' "$dir" "$dir"
+    return 0
+  fi
+
+  local blue='\033[34m' yellow='\033[33m' green='\033[32m' red='\033[31m'
+  local cyan='\033[36m' reset='\033[0m'
+  local brief="${blue}${branch}${reset}"
+  [ "${ahead:-0}" -gt 0 ] && brief+=" ${yellow}↑${ahead}${reset}"
+  [ "${behind:-0}" -gt 0 ] && brief+=" ${yellow}↓${behind}${reset}"
+  [ "${added:-0}" -gt 0 ] && brief+=" ${green}+${added}${reset}"
+  [ "${removed:-0}" -gt 0 ] && brief+=" ${red}-${removed}${reset}"
+  [ "${untracked:-0}" -gt 0 ] && brief+=" ${cyan}?${untracked}${reset}"
+
+  printf '%s\t%s  %b\n' "$dir" "$dir" "$brief"
+}
 
 # -maxdepth 5 bounds the walk under $HOME; -prune on .git and node_modules
 # stops the descent right after printing a hit, so nested repos (a dependency
@@ -64,9 +215,51 @@ if [ -z "$dirs" ]; then
   exit 1
 fi
 
-selected=$(printf '%s\n' "$dirs" | fzf --cycle --prompt "Repo > ")
+# Nothing to show and nothing to leave out: the paths are the whole answer, and
+# no repository has to be opened to produce them.
+if [ -z "$brief" ] && [ -z "$filter" ]; then
+  selected=$(printf '%s\n' "$dirs" | fzf --cycle --prompt "Repo > ")
 
-# Backing out is not a failure: say nothing and succeed.
+  # Backing out is not a failure: say nothing and succeed.
+  [ -n "$selected" ] || exit 0
+
+  printf '%s\n' "$selected"
+  exit 0
+fi
+
+# Inspected 8 at a time: under -fetch each job opens a remote connection, and
+# forking the whole list at once can hit the process limit. NUL separation so
+# repository paths with spaces survive. `|| true` because a repository -filter
+# drops is the ordinary case, not an xargs failure.
+export -f git_repo_row
+export PICK_REPO_BRIEF="$brief" PICK_REPO_FILTER="$filter" PICK_REPO_FETCH="$fetch"
+rows=$(
+  printf '%s\n' "$dirs" | tr '\n' '\0' \
+    | xargs -0 -P 8 -n 1 \
+            bash -c 'git_repo_row "$1" || true' _ \
+    | LC_ALL=C sort
+)
+
+if [ -z "$rows" ]; then
+  checked=$(printf '%s\n' "$dirs" | wc -l | tr -d ' ')
+  note "Nothing to show: none of the $checked repositories checked have changes"
+  exit 1
+fi
+
+# Only -filter leaves anything out, so only -filter has a count worth heading
+# the list with: it says how many of the repositories checked made it, which is
+# what distinguishes an empty-looking list from a short one.
+fzf_header=()
+if [ -n "$filter" ]; then
+  checked=$(printf '%s\n' "$dirs" | wc -l | tr -d ' ')
+  changed=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
+  fzf_header=(--header "$(printf ':: \033[33m%s\033[0m of \033[33m%s\033[0m repositories have changes' \
+    "$changed" "$checked")")
+fi
+
+selected=$(printf '%s\n' "$rows" \
+  | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "Repo > " "${fzf_header[@]}")
+
 [ -n "$selected" ] || exit 0
 
-printf '%s\n' "$selected"
+printf '%s\n' "${selected%%	*}"

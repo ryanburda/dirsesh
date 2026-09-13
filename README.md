@@ -128,8 +128,10 @@ Usage:
     status-init                                  # Install the tmux hooks `status` needs (`dirsesh init` does this too)
 
   dirsesh pick-dir                               # Print a directory under $HOME
-  dirsesh pick-repo                              # Print a git repository under $HOME
-  dirsesh pick-repo-brief                        # Print a git repository under $HOME that has changes
+  dirsesh pick-repo [-brief] [-filter] [-fetch]  # Print a git repository under $HOME
+    -brief                                       # Show what each repository has waiting, beside its path
+    -filter                                      # List only the repositories that have something waiting
+    -fetch                                       # Fetch first, so the ahead/behind counts are current
   dirsesh pick-worktree                          # Print a worktree of the current repository
 
 The pickers print a path on stdout, so they compose with `dirsesh at`:
@@ -212,12 +214,6 @@ and add to `~/.zshrc`, before `compinit` runs:
 ```bash
 fpath=(~/.zsh/completions $fpath)
 autoload -Uz compinit && compinit
-```
-
-**Fish**:
-
-```bash
-ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.fish ~/.config/fish/completions/
 ```
 </details>
 

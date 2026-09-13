@@ -42,8 +42,11 @@ dirsesh bookmark <command> [args...]    # Bookmark directories, one printable ch
   status-init                           # Install the tmux hooks `status` needs (put this in tmux.conf)
 
 dirsesh pick-dir                        # Print a directory under $HOME
-dirsesh pick-repo                       # Print a git repository under $HOME
-dirsesh pick-repo-brief                 # Print a git repository under $HOME that has changes
+dirsesh pick-repo [-brief] [-filter] [-fetch]
+                                        # Print a git repository under $HOME
+  -brief                                # Show what each repository has waiting, beside its path
+  -filter                               # List only the repositories that have something waiting
+  -fetch                                # Fetch first, so the ahead/behind counts are current
 dirsesh pick-worktree                   # Print a worktree of the current repository
 ```
 
@@ -58,12 +61,30 @@ Each subcommand documents itself. `-help` prints what it lists, how it behaves a
 and anything worth knowing before you bind it to a key:
 
 ```bash
-dirsesh pick-repo-brief -help
+dirsesh pick-repo -help
 dirsesh session-logs -help
 ```
 
 That is where the per-command detail lives, so it cannot drift from the scripts the way a second
 copy in this file would.
+
+`pick-repo` has three flags, and they are independent. `-brief` says what to show — each
+repository's branch and what it has waiting, `↑` unpushed, `↓` waiting upstream, `+`/`-`
+uncommitted, `?` untracked. `-filter` says what to leave out — everything with nothing waiting.
+`-fetch` says how current the remote half of both is, at the cost of a network round trip per
+repository, which is the whole of the wait:
+
+```bash
+dirsesh pick-repo                          # every repository, path only
+dirsesh pick-repo -brief                   # every repository, and what it has waiting
+dirsesh pick-repo -filter                  # only the ones with something waiting
+dirsesh pick-repo -brief -filter           # both, read from the working tree
+dirsesh pick-repo -brief -filter -fetch    # ...and against fetched remotes
+```
+
+Without `-fetch`, `↑` and `↓` are counted against the upstream ref as it stands on disk — the
+same counts `git status` reports, and stale in the same way. Everything else is read from the
+working tree and is current either way.
 
 `bookmark` is the exception: it has subcommands of its own, a tmux status line and the
 keybindings that go with them, which is more than a header comment holds. See
@@ -76,7 +97,7 @@ keybindings that go with them, which is more than a header comment holds. See
 
 bind-key d popup -E 'dirsesh at "$(dirsesh pick-dir)"'
 bind-key r popup -E 'dirsesh at "$(dirsesh pick-repo)"'
-bind-key R popup -E 'dirsesh at "$(dirsesh pick-repo-brief)"'
+bind-key R popup -E 'dirsesh at "$(dirsesh pick-repo -brief -filter -fetch)"'
 bind-key w popup -E 'dirsesh at "$(dirsesh pick-worktree)"'
 
 bind-key b popup -E 'dirsesh at "$(dirsesh bookmark pick)"'
@@ -96,7 +117,7 @@ and once in your shell for when no tmux server is running:
 
 alias d='dirsesh at "$(dirsesh pick-dir)"'
 alias r='dirsesh at "$(dirsesh pick-repo)"'
-alias R='dirsesh at "$(dirsesh pick-repo-brief)"'
+alias R='dirsesh at "$(dirsesh pick-repo -brief -filter -fetch)"'
 alias w='dirsesh at "$(dirsesh pick-worktree)"'
 alias b='dirsesh at "$(dirsesh bookmark pick)"'
 ```
