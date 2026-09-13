@@ -174,6 +174,9 @@ bind-key w popup -E 'dirsesh at "$(dirsesh-extras pick-worktree)"'
 
 bind-key \; run-shell -b "dirsesh-extras last-session"
 bind-key s popup -h 35% -w 40% -E "dirsesh-extras session-switcher"
+bind-key T popup -h 35% -w 40% -E "dirsesh at $(mktemp -d)"
+bind-key j run-shell 'dirsesh-extras smart-split -v 78 22 -c "#{pane_current_path}"'
+bind-key l run-shell 'dirsesh-extras smart-split -h 65 35 -c "#{pane_current_path}"'
 ```
 
 A picker is worth binding twice — once in `tmux.conf` like the above for when tmux is running,
