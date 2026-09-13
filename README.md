@@ -115,10 +115,19 @@ Usage:
   dirsesh init                                   # Install the hook that cleans up configured sessions (put this in tmux.conf)
 ```
 
-## Workflow
+## Extras
 
-See [Workflow](docs/workflow.md) for an example of how to integrate `dirsesh` into
-your day-to-day setup.
+`dirsesh` creates sessions. Switching between them and killing them are separate jobs that
+plenty of other tools already do well, so if you have one you like, keep using it.
+
+If you would rather `dirsesh` be your session manager anyway, `dirsesh-extras` is a second
+command holding the rest of it:
+- the directory pickers that pair with `dirsesh at`
+- a session switcher/killer that uses fzf
+- a directory bookmarker
+- and other handy features
+
+See [Extras](docs/extras.md).
 
 ## Install
 
@@ -128,7 +137,7 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install
 
 The install script:
 - clones the repository to `${XDG_DATA_HOME:-~/.local/share}/tmux-dirsesh`
-- symlinks `dirsesh` into `~/.local/bin`.
+- symlinks `dirsesh` and `dirsesh-extras` into `~/.local/bin`.
 
 Re-run it any time to update.
 
@@ -136,18 +145,19 @@ Re-run it any time to update.
 <summary><strong style="font-size: 1.25em;">Custom Installation</strong></summary>
 
 Two environment variables change where things land: `DIRSESH_HOME` (where the repo is cloned) and
-`BIN_DIR` (where the `dirsesh` symlink goes).
+`BIN_DIR` (where the symlinks go).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install.sh \
   | DIRSESH_HOME=~/src/dirsesh BIN_DIR=~/bin sh
 ```
 
-Or manually: clone the repo, symlink `dirsesh` into a directory on your PATH.
+Or manually: clone the repo, symlink both programs into a directory on your PATH.
 
 ```bash
 git clone https://github.com/ryanburda/tmux-dirsesh.git ~/git/tmux-dirsesh
-ln -s ~/git/tmux-dirsesh/dirsesh ~/.local/bin/dirsesh
+ln -s ~/git/tmux-dirsesh/dirsesh        ~/.local/bin/dirsesh
+ln -s ~/git/tmux-dirsesh/dirsesh-extras ~/.local/bin/dirsesh-extras
 ```
 </details>
 

@@ -8,8 +8,8 @@ Usage:
   dirsesh-extras                     # Show help message
 
   dirsesh-extras pick-dir            # Print a directory under $HOME
-  dirsesh-extras pick-repo           # Print a git repository under $HOME/code
-  dirsesh-extras pick-repo-brief     # Print a git repository under $HOME/code that has changes
+  dirsesh-extras pick-repo           # Print a git repository under $HOME
+  dirsesh-extras pick-repo-brief     # Print a git repository under $HOME that has changes
   dirsesh-extras pick-worktree       # Print a worktree of the current repository
 
 Each picker prints the chosen directory on stdout, so it composes with dirsesh:
