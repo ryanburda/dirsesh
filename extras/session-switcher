@@ -1,0 +1,63 @@
+#!/bin/bash
+# Switch to another running tmux session, choosing it with fzf.
+#
+# Usage: session-switcher [session]
+#
+#   session  Switch straight to this session instead of showing the picker.
+
+notify() {
+  # Show a message: tmux display-message inside tmux, stderr otherwise.
+  local msg="$1"
+  if [ -n "$TMUX" ]; then
+    tmux display-message "$msg"
+  else
+    echo "$msg" >&2
+  fi
+}
+
+session="$1"
+
+# No session given: pick one with fzf.
+if [ -z "$session" ]; then
+  # Formatted rather than cut out of `tmux ls`, which would split a name at
+  # its first colon.
+  sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+
+  if [ -z "$sessions" ]; then
+    notify "No active sessions"
+    exit 1
+  fi
+
+  # The session being switched from is not a destination: it is dropped from
+  # the list and named in the header instead. Nothing is dropped outside
+  # tmux, where there is no session to switch from.
+  current=""
+  [ -n "$TMUX" ] && current=$(tmux display-message -p '#{session_name}' 2>/dev/null)
+
+  fzf_args=(--cycle --prompt "Session > ")
+  if [ -n "$current" ]; then
+    sessions=$(printf '%s\n' "$sessions" | grep -vxF -- "$current")
+    fzf_args+=(--header "$(printf ':: on \033[33m%s\033[0m' "$current")")
+
+    if [ -z "$sessions" ]; then
+      notify "No other active sessions"
+      exit 1
+    fi
+  fi
+
+  session=$(echo "$sessions" | fzf "${fzf_args[@]}")
+
+  [ -n "$session" ] || exit 0
+fi
+
+if ! tmux has-session -t "=$session" 2>/dev/null; then
+  notify "Error: Session '$session' is not running"
+  exit 1
+fi
+
+# Switch to the session if inside tmux, attach otherwise.
+if [ -n "$TMUX" ]; then
+  tmux switch-client -t "=$session"
+else
+  tmux attach-session -t "=$session"
+fi
