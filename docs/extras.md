@@ -22,7 +22,7 @@ you opt into rather than something you have to work around.
 ## Usage
 
 ```bash
-dirsesh-extras - Directory pickers to pair with `dirsesh at`
+dirsesh-extras - Pickers and session management to pair with dirsesh
 
 Usage:
   dirsesh-extras                     # Show help message
