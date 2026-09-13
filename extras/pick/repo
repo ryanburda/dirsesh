@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# repo: prints the directory of a git repository, chosen with fzf.
+# pick-repo: print the directory of a git repository under $HOME, chosen with fzf.
+#
+# Usage: dirsesh-extras pick-repo
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr

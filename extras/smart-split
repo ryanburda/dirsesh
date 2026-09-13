@@ -1,13 +1,13 @@
 #!/bin/bash
-# Smart tmux split that adjusts split percentage based on current pane size relative to the full window.
 #
-# Usage: smart-split <-h|-v> <threshold> <small_pct> [extra split-window args...]
+# smart-split: split the current pane, evenly or small depending on its size.
 #
-#   -h|-v      Split direction (horizontal or vertical)
-#   threshold  If the relevant dimension of the current pane exceeds this percentage
-#              of the full window, use small_pct. Otherwise, split evenly.
-#   small_pct  The split percentage to use when the pane is larger than the threshold.
-#   Extra arguments are forwarded to tmux split-window (e.g. -c '#{pane_current_path}').
+# Usage: dirsesh-extras smart-split <-h|-v> <threshold> <small-pct> [args...]
+#   -h|-v      Split left/right (-h) or top/bottom (-v).
+#   threshold  If the relevant dimension of the current pane exceeds this
+#              percentage of the full window, use small-pct. Otherwise, split evenly.
+#   small-pct  The split percentage to use when the pane is larger than the threshold.
+#   args...    Forwarded to tmux split-window (e.g. -c '#{pane_current_path}').
 #
 # ---
 #
@@ -41,7 +41,7 @@ small_pct="$3"
 shift 3
 
 if [ -z "$direction" ] || [ -z "$threshold" ] || [ -z "$small_pct" ]; then
-    echo "Usage: smart-split <-h|-v> <threshold> <small_pct> [extra args...]" >&2
+    echo "Usage: dirsesh-extras smart-split <-h|-v> <threshold> <small-pct> [args...]" >&2
     exit 1
 fi
 

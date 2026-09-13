@@ -1,10 +1,12 @@
 #!/bin/bash
 #
+# last-session: switch back to the session you came from.
+#
+# Usage: dirsesh-extras last-session
+#
 # 1) Switch to the last session if it is still around.
 # 2) Fall back to the only other active session if there are only two active sessions.
 # 3) Use fzf to select a session if there are more than two currently active sessions.
-#
-# Usage: dirsesh-extras last-session
 
 if [ -z "$TMUX" ]; then
   echo "Error: not inside tmux" >&2
@@ -20,7 +22,7 @@ if [ -n "$last" ] && [ "$last" != "$current" ]; then
 elif [ "$count" -eq 2 ]; then
   tmux switch-client -n
 elif [ "$count" -gt 2 ]; then
-  tmux popup -h 35% -w 40% -E "dirsesh-extras session_switcher"
+  tmux popup -h 35% -w 40% -E "dirsesh-extras session-switcher"
 else
   tmux display-message "No other active sessions to switch to"
 fi

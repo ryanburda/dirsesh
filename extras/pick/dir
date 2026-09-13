@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# dir: prints a directory, chosen with fzf.
+# pick-dir: print a directory under $HOME, chosen with fzf.
+#
+# Usage: dirsesh-extras pick-dir
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 #
-# worktree:
-#   Prints the directory of a worktree of the current repository, chosen with fzf.
-#   Must be run from inside a git repository (or another worktree).
+# pick-worktree: print the directory of a worktree of the current repository,
+# chosen with fzf.
+#
+# Usage: dirsesh-extras pick-worktree
+#
+# Must be run from inside a git repository (or another worktree).
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr

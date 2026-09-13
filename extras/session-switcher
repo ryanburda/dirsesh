@@ -1,8 +1,8 @@
 #!/bin/bash
-# Switch to another running tmux session, choosing it with fzf.
 #
-# Usage: session-switcher [session]
+# session-switcher: switch to another running tmux session, chosen with fzf.
 #
+# Usage: dirsesh-extras session-switcher [session]
 #   session  Switch straight to this session instead of showing the picker.
 
 notify() {

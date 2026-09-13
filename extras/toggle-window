@@ -1,14 +1,18 @@
 #!/bin/bash
-# Toggle a named tmux window: switch to it if it already exists, otherwise
-# create it running the given command. The new window closes when the command
-# exits, returning to the previously active window.
+#
+# toggle-window: switch to a named tmux window, creating it if it is not there.
+#
+# Usage: dirsesh-extras toggle-window <name> <command...>
+#   name        The window's name, and what it is found by.
+#   command...  Run in the window when it is created.
+#
+# The new window closes when the command exits, returning to the previously
+# active window.
 #
 # Preferred over `display-popup` for long-lived TUIs like lazygit or
 # lazydocker: a popup is not a real window, so copy mode, scrollback, pane
 # splits and window navigation are unavailable inside it. A real window keeps
 # all of that while still feeling like a toggle.
-#
-# Usage: dirsesh-extras toggle-window <window_name> <command...>
 window_name="$1"
 shift
 command="$@"

@@ -5,14 +5,29 @@ usage() {
 dirsesh-extras - Pickers and session management to pair with dirsesh
 
 Usage:
-  dirsesh-extras                     # Show help message
+  dirsesh-extras                                                         # Show help message
 
-  dirsesh-extras pick-dir            # Print a directory under $HOME
-  dirsesh-extras pick-repo           # Print a git repository under $HOME
-  dirsesh-extras pick-repo-brief     # Print a git repository under $HOME that has changes
-  dirsesh-extras pick-worktree       # Print a worktree of the current repository
+  dirsesh-extras pick-dir                                                # Print a directory under $HOME
+  dirsesh-extras pick-repo                                               # Print a git repository under $HOME
+  dirsesh-extras pick-repo-brief                                         # Print a git repository under $HOME that has changes
+  dirsesh-extras pick-worktree                                           # Print a worktree of the current repository
 
-Each picker prints the chosen directory on stdout, so it composes with dirsesh:
+  dirsesh-extras session-switcher [session]                              # Switch to another running session
+    session                                                              # Switch straight to this one instead of picking
+  dirsesh-extras last-session                                            # Switch back to the session you came from
+  dirsesh-extras kill-session [session]                                  # Kill a running session
+    session                                                              # Kill this one instead of picking
+
+  dirsesh-extras toggle-window <name> <command...>                       # Switch to a window, creating it if it is not there
+    name                                                                 # The window's name, and what it is found by
+    command...                                                           # Run in the window when it is created
+  dirsesh-extras smart-split <-h|-v> <threshold> <small-pct> [args...]   # Split the current pane, evenly or small
+    -h|-v                                                                # Split left/right (-h) or top/bottom (-v)
+    threshold                                                            # Percent of the window past which small-pct is used
+    small-pct                                                            # Size of the new pane past the threshold
+    args...                                                              # Forwarded to tmux split-window
+
+The pickers print a path on stdout, so they compose with dirsesh:
 
   dirsesh at "$(dirsesh-extras pick-repo)"
 
@@ -37,7 +52,7 @@ notify() {
 }
 
 self_dir() {
-  # Directory holding this program, with symlinks resolved. The pickers live
+  # Directory holding this program, with symlinks resolved. The scripts live
   # beside it in the checkout, and install.sh links this program onto PATH,
   # so the link has to be followed to find them.
   local self="$0"
@@ -59,29 +74,31 @@ self_dir() {
   (cd "$(dirname "$self")" && pwd -P)
 }
 
-run_picker() {
-  # Run the picker named $1, passing on any remaining arguments.
+run_extra() {
+  # Run a script under extras/, passing on any remaining arguments. The
+  # subcommand and the file it runs carry the same kebab-case name; only the
+  # pickers differ, living a directory down as extras/pick/<name>.
   #
   # Args:
-  #   $1: name: the file under extras/pick to run
+  #   $1: name: the script's path relative to extras/
   local name="$1"
   shift
 
   local dir
   if ! dir=$(self_dir); then
-    notify "Error: could not locate the directory pickers"
+    notify "Error: could not locate the extras scripts"
     exit 1
   fi
 
-  local picker="$dir/extras/pick/$name"
-  if [ ! -f "$picker" ]; then
-    notify "Error: missing picker '$picker'"
+  local script="$dir/extras/$name"
+  if [ ! -f "$script" ]; then
+    notify "Error: missing script '$script'"
     exit 1
   fi
 
   # `bash` rather than executing it directly, so a checkout whose files lost
   # their execute bit still works.
-  bash "$picker" "$@"
+  bash "$script" "$@"
 }
 
 # Parse arguments
@@ -95,16 +112,31 @@ shift
 
 case "$command" in
   pick-dir)
-    run_picker dir "$@"
+    run_extra pick/dir "$@"
     ;;
   pick-repo)
-    run_picker repo "$@"
+    run_extra pick/repo "$@"
     ;;
   pick-repo-brief)
-    run_picker repo-brief "$@"
+    run_extra pick/repo-brief "$@"
     ;;
   pick-worktree)
-    run_picker worktree "$@"
+    run_extra pick/worktree "$@"
+    ;;
+  session-switcher)
+    run_extra session-switcher "$@"
+    ;;
+  last-session)
+    run_extra last-session "$@"
+    ;;
+  kill-session)
+    run_extra kill-session "$@"
+    ;;
+  toggle-window)
+    run_extra toggle-window "$@"
+    ;;
+  smart-split)
+    run_extra smart-split "$@"
     ;;
   help)
     usage

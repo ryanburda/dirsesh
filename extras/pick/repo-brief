@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 #
-# repo-brief:
-#   Prints the directory of a git repository that has:
-#     - commits waiting upstream
-#     - commits not yet pushed
-#     - uncommitted work (staged, unstaged or untracked)
+# pick-repo-brief: print the directory of a git repository under $HOME that has
+# changes, chosen with fzf.
+#
+# Usage: dirsesh-extras pick-repo-brief
+#
+# A repository has changes when it has any of:
+#   - commits waiting upstream
+#   - commits not yet pushed
+#   - uncommitted work (staged, unstaged or untracked)
 #
 # Every repository is fetched before it is inspected, so the ahead/behind
 # counts are current. That is what makes this somewhat slow to appear.

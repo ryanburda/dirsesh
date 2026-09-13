@@ -25,12 +25,33 @@ you opt into rather than something you have to work around.
 dirsesh-extras - Pickers and session management to pair with dirsesh
 
 Usage:
-  dirsesh-extras                     # Show help message
+  dirsesh-extras                                                         # Show help message
 
-  dirsesh-extras pick-dir            # Print a directory under $HOME
-  dirsesh-extras pick-repo           # Print a git repository under $HOME
-  dirsesh-extras pick-repo-brief     # Print a git repository under $HOME that has changes
-  dirsesh-extras pick-worktree       # Print a worktree of the current repository
+  dirsesh-extras session-switcher [session]                              # Switch to another running session
+    session                                                              # Switch straight to this one instead of picking
+  dirsesh-extras last-session                                            # Switch back to the session you came from
+  dirsesh-extras kill-session [session]                                  # Kill a running session
+    session                                                              # Kill this one instead of picking
+
+  dirsesh-extras toggle-window <name> <command...>                       # Switch to a window, creating it if it is not there
+    name                                                                 # The window's name, and what it is found by
+    command...                                                           # Run in the window when it is created
+  dirsesh-extras smart-split <-h|-v> <threshold> <small-pct> [args...]   # Split the current pane, evenly or small
+    -h|-v                                                                # Split left/right (-h) or top/bottom (-v)
+    threshold                                                            # Percent of the window past which small-pct is used
+    small-pct                                                            # Size of the new pane past the threshold
+    args...                                                              # Forwarded to tmux split-window
+
+  dirsesh-extras pick-dir                                                # Print a directory under $HOME
+  dirsesh-extras pick-repo                                               # Print a git repository under $HOME
+  dirsesh-extras pick-repo-brief                                         # Print a git repository under $HOME that has changes
+  dirsesh-extras pick-worktree                                           # Print a worktree of the current repository
+
+The pickers print a path on stdout, so they compose with dirsesh:
+
+  dirsesh at "$(dirsesh-extras pick-repo)"
+
+See https://github.com/ryanburda/tmux-dirsesh for more documentation
 ```
 
 ## The `pick-*` commands
