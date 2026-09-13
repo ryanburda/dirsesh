@@ -25,6 +25,7 @@ _dirsesh_extras_commands() {
         'last-session:Switch back to the session you came from'
         'kill-session:Kill a running session'
         'logs:Browse the logs a dirsesh configuration wrote'
+        'bookmark:Bookmark directories, one printable character each'
         'toggle-window:Switch to a window, creating it if it is not there'
         'smart-split:Split the current pane, evenly or small'
         'help:Show help message'
@@ -46,6 +47,28 @@ _dirsesh_extras_log_sessions() {
     local dir="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/logs"
     log_sessions=(${(f)"$(find $dir -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort)"})
     _describe 'session' log_sessions
+}
+
+_dirsesh_extras_bookmark_commands() {
+    local commands=(
+        'set:Bookmark a directory at a character'
+        'remove:Remove a bookmark'
+        'get:Print the directory a bookmark points at'
+        'pick:Choose a bookmark with fzf and print its directory'
+        'list:Every bookmark as "char<TAB>directory"'
+        'status:Bookmarks with a tmux session open at them, for a status line'
+        'status-init:Install the tmux hooks `status` needs'
+    )
+
+    _describe 'command' commands
+}
+
+_dirsesh_extras_bookmark_chars() {
+    # The picker's own rows: character, directory, then the column it
+    # displays -- which makes a fine completion description.
+    local -a bookmarks
+    bookmarks=(${(f)"$(dirsesh-extras bookmark _entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 ":" d }')"})
+    _describe 'bookmark' bookmarks
 }
 
 _dirsesh_extras_windows() {
@@ -83,6 +106,28 @@ _dirsesh_extras() {
             if (( CURRENT == 2 )); then
                 _dirsesh_extras_log_sessions
                 compadd -- -help
+            fi
+            ;;
+        bookmark)
+            # Its own subcommand sits where the other extras' first argument
+            # does, so CURRENT is one further along for everything it takes.
+            if (( CURRENT == 2 )); then
+                _dirsesh_extras_bookmark_commands
+                compadd -- -help
+            else
+                case "$line[2]" in
+                    remove | get)
+                        (( CURRENT == 3 )) && _dirsesh_extras_bookmark_chars
+                        ;;
+                    set)
+                        # The character comes first and is the user's to pick;
+                        # the directory after it is the one being bookmarked.
+                        (( CURRENT > 3 )) && _files -/
+                        ;;
+                    status)
+                        _values -s ' ' 'status options' '-s' '--style' '-c' '--current-style'
+                        ;;
+                esac
             fi
             ;;
         toggle-window)

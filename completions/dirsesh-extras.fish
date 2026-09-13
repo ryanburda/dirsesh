@@ -14,6 +14,7 @@ complete -c dirsesh-extras -n '__fish_use_subcommand' -a session-switcher -d 'Sw
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a last-session -d 'Switch back to the session you came from'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a kill-session -d 'Kill a running session'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a logs -d 'Browse the logs a dirsesh configuration wrote'
+complete -c dirsesh-extras -n '__fish_use_subcommand' -a bookmark -d 'Bookmark directories, one printable character each'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a toggle-window -d 'Switch to a window, creating it if it is not there'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a smart-split -d 'Split the current pane, evenly or small'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a help -d 'Show help message'
@@ -31,6 +32,25 @@ complete -c dirsesh-extras -n '__fish_seen_subcommand_from toggle-window' \
 complete -c dirsesh-extras -n '__fish_seen_subcommand_from logs' \
     -xa '(find (set -q XDG_STATE_HOME; and echo $XDG_STATE_HOME; or echo $HOME/.local/state)/dirsesh/logs -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort)' -d 'Session'
 complete -c dirsesh-extras -n '__fish_seen_subcommand_from smart-split' -xa '-h -v'
+
+# bookmark is the one subcommand with subcommands of its own: offer them while
+# none has been named, then whatever the named one takes.
+function __dirsesh_extras_bookmark_chars
+    # The picker's own rows: character, directory, then the column it
+    # displays -- which makes a fine completion description.
+    dirsesh-extras bookmark _entries 2>/dev/null \
+        | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 "\t" d }'
+end
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from bookmark; and not __fish_seen_subcommand_from set remove get pick list status status-init' \
+    -xa 'set remove get pick list status status-init'
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from bookmark; and __fish_seen_subcommand_from remove get' \
+    -xa '(__dirsesh_extras_bookmark_chars)'
+# The character comes first and is the user's to pick; the directory after it
+# is the one being bookmarked.
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from bookmark; and __fish_seen_subcommand_from set' \
+    -ra '(__fish_complete_directories)'
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from bookmark; and __fish_seen_subcommand_from status' \
+    -xa '-s --style -c --current-style'
 # Every subcommand documents itself with -help in first position.
-complete -c dirsesh-extras -n '__fish_seen_subcommand_from pick-dir pick-repo pick-repo-brief pick-worktree session-switcher last-session kill-session logs toggle-window smart-split' \
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from pick-dir pick-repo pick-repo-brief pick-worktree session-switcher last-session kill-session logs bookmark toggle-window smart-split' \
     -xa '-help' -d 'Show what this command does, in detail'

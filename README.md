@@ -115,10 +115,10 @@ If you would rather `dirsesh` be your session manager anyway, `dirsesh-extras` i
 command holding the rest of it:
 - the directory pickers that pair with `dirsesh at`
 - a session switcher/killer that uses fzf
-- a directory bookmarker
+- a directory bookmarker, one printable character per directory
 - and other handy features
 
-See [Extras](docs/extras.md).
+See [Extras](docs/extras.md) and [Bookmarks](docs/bookmark.md).
 
 ## Install
 

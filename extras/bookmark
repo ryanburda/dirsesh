@@ -1,0 +1,527 @@
+#!/bin/bash
+#
+# bookmark: one printable character, one directory, the way vim marks do.
+#
+# Usage: dirsesh-extras bookmark <command> [args...]
+#   set <char> [path]     Bookmark a directory (path defaults to the current directory)
+#   remove <char>         Remove a bookmark
+#   get <char>            Print the directory a bookmark points at
+#   pick                  Choose a bookmark with fzf and print its directory (ctrl-x removes)
+#   list                  Every bookmark as "char<TAB>directory"
+#   status [path]         Bookmarks with a tmux session open at them, for a status line
+#     -s, --style           tmux style for the other sessions' characters (default: dim)
+#     -c, --current-style   tmux style for the current session's character (default: fg=yellow,bold)
+#   status-init           Install the tmux hooks `status` needs (put this in tmux.conf)
+#
+# A bookmark is one printable character pointing at one directory. Setting a
+# character that is already set replaces it, no confirmation, the way `m` does
+# in vim. There is no ranking, no history and no decay: `m` points where you
+# put it until you put it somewhere else. That is what makes this worth having
+# next to the fuzzy pickers -- it is the case where you already know exactly
+# where you are going.
+#
+# `get` and `pick` print a directory on stdout and nothing else, so they
+# compose with dirsesh exactly as the pickers do:
+#
+#   dirsesh at "$(dirsesh-extras bookmark get m)"
+#   dirsesh at "$(dirsesh-extras bookmark pick)"
+#
+# Each bookmark is a file named after its character, holding the directory it
+# points at, in ${XDG_STATE_HOME:-~/.local/state}/dirsesh/bookmarks -- or under
+# $DIRSESH_BOOKMARKS_DIR, which is what to set for a per-project or per-machine
+# set of bookmarks.
+#
+# See docs/bookmark.md for the tmux keybindings and the status line.
+
+BOOKMARKS_DIR="${DIRSESH_BOOKMARKS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/bookmarks}"
+mkdir -p "$BOOKMARKS_DIR"
+
+# The internal verb the tmux hooks call back on. Also the string `status-init`
+# greps for to recognise a hook it installed before.
+HOOK_REFRESH=_bookmark-refresh-status
+
+usage() {
+  # This script's own header comment, which is where its usage is written down
+  # -- the same text `dirsesh-extras bookmark -help` prints, read from the
+  # same place so the two cannot drift.
+  sed -n '2,${
+    /^#/!q
+    s/^#[[:space:]]\{0,1\}//
+    p
+  }' "$0" | sed '/./,$!d'
+}
+
+####################
+# helper functions #
+####################
+notify() {
+  # Show a message: tmux display-message inside tmux, stderr otherwise.
+  # stderr because several callers run inside a command substitution whose
+  # stdout is their return value -- and a program run from a tmux popup loses
+  # its stderr when the popup closes.
+  local msg="$1"
+  if [ -n "$TMUX" ]; then
+    tmux display-message "$msg"
+  else
+    echo "$msg" >&2
+  fi
+}
+
+extras_path() {
+  # Echo the absolute path to re-run `dirsesh-extras bookmark` by, or nothing
+  # with a non-zero status. Both callers run it later in an environment of
+  # their own -- fzf in a shell, tmux in a hook -- and neither PATH need hold
+  # it.
+  #
+  # dirsesh-extras runs this script by its path in the checkout, symlinks
+  # already resolved, so its own file is the sibling of the extras/ directory
+  # this one lives in. That absolute path is preferred over the installed
+  # link: tmux's run-shell starts a non-interactive shell whose PATH need not
+  # be the one dirsesh-extras was installed onto.
+  local self="$0" dir
+
+  case "$self" in
+    */*) ;;
+    *) self=$(command -v -- "$self" 2>/dev/null) || return 1 ;;
+  esac
+
+  if dir=$(cd "$(dirname "$self")/.." && pwd -P) && [ -f "$dir/dirsesh-extras" ]; then
+    printf '%s/dirsesh-extras\n' "$dir"
+    return 0
+  fi
+
+  command -v -- dirsesh-extras 2>/dev/null
+}
+
+is_bookmark_char() {
+  # Succeed if $1 is a single printable ASCII character that also names a
+  # file safely: not '/', a path separator, and not '.', which alone names
+  # the directory a bookmark file lives in rather than a bookmark.
+  #
+  # Printability is checked by code point rather than a [!-~] range, which
+  # outside the C locale is read in collation order; '/' and '.' are ruled
+  # out by regex instead, since neither depends on locale.
+  #
+  # Args:
+  #   $1: char: the character to check
+  local char="$1" code
+
+  [ "${#char}" -eq 1 ] || return 1
+  [[ "$char" =~ ^[/.]$ ]] && return 1
+
+  code=$(printf '%d' "'$char" 2>/dev/null)
+  [ -n "$code" ] && [ "$code" -ge 33 ] && [ "$code" -le 126 ]
+}
+
+check_bookmark_char() {
+  # Exit unless $1 can key a bookmark; see is_bookmark_char.
+  #
+  # Args:
+  #   $1: char: the character to check
+  local char="$1"
+
+  if ! is_bookmark_char "$char"; then
+    notify "Error: a bookmark is keyed by a single printable character, not '/' or '.'"
+    exit 1
+  fi
+}
+
+read_bookmarks() {
+  # Emit one "char<TAB>directory" line per bookmark, sorted by character.
+  #
+  # A bookmark is a file at $BOOKMARKS_DIR/<char> holding the directory it
+  # names. Anything in $BOOKMARKS_DIR whose name is not a valid bookmark
+  # character, or whose contents are empty or hold a tab or newline, is
+  # dropped: nothing here can write one, and it would split a line callers
+  # read whole.
+  local file char dir
+
+  for file in "$BOOKMARKS_DIR"/*; do
+    [ -f "$file" ] || continue
+    char=$(basename "$file")
+    is_bookmark_char "$char" || continue
+
+    dir=$(cat "$file" 2>/dev/null)
+    case "$dir" in
+      "" | *[$'\t\n']*) continue ;;
+    esac
+
+    printf '%s\t%s\n' "$char" "$dir"
+  done | LC_ALL=C sort
+}
+
+bookmark_directory() {
+  # Echo the directory bookmarked at $1, or nothing with a non-zero status.
+  #
+  # Args:
+  #   $1: char: the bookmark character to look up
+  local char="$1" file dir
+
+  file="$BOOKMARKS_DIR/$char"
+  [ -f "$file" ] || return 1
+
+  dir=$(cat "$file" 2>/dev/null)
+  [ -n "$dir" ] || return 1
+
+  printf '%s\n' "$dir"
+}
+
+bookmark_entries() {
+  # The picker's rows: character and directory, tab separated, followed by
+  # the "char directory" column that is displayed. fzf shows only the third
+  # field (--with-nth); the first two ride along for its bindings.
+  local char dir
+
+  while IFS=$'\t' read -r char dir; do
+    printf '%s\t%s\t%s    %s\n' "$char" "$dir" "$char" "${dir/#"$HOME"/\~}"
+  done < <(read_bookmarks)
+}
+
+refresh_status() {
+  # Redraw every attached client's status line. tmux's own refresh-client
+  # reaches only one client, and a status line passing #{session_path} gives
+  # each client a #() job of its own, so all of them need the nudge. A no-op
+  # outside tmux, where there is nothing to redraw.
+  local client
+
+  while IFS= read -r client; do
+    [ -n "$client" ] && tmux refresh-client -S -t "$client" 2>/dev/null
+  done < <(tmux list-clients -F '#{client_name}' 2>/dev/null)
+}
+
+install_status_hook() {
+  # Point one global tmux hook at the refresh verb. Appended, so anyone
+  # else's hooks on it survive -- `dirsesh init`'s session-closed hook among
+  # them; any hook a previous `bookmark status-init` left on it is dropped
+  # first, so re-sourcing tmux.conf does not stack duplicates.
+  #
+  # Args:
+  #   $1: hook: the tmux hook name
+  #   $2: self: absolute path to dirsesh-extras
+  local hook="$1" self="$2"
+
+  # Unsetting an array element leaves the others at their own indexes, so the
+  # indexes collected here stay valid as they are removed.
+  local index
+  while IFS= read -r index; do
+    tmux set-hook -gu "$hook[$index]"
+  done < <(tmux show-hooks -g 2>/dev/null \
+    | sed -n "s/^$hook\\[\\([0-9]\\{1,\\}\\)\\].*$HOOK_REFRESH.*/\\1/p")
+
+  if ! tmux set-hook -ga "$hook" "run-shell -b \"'$self' bookmark $HOOK_REFRESH\""; then
+    notify "Error: could not set the tmux '$hook' hook"
+    return 1
+  fi
+}
+
+#################
+# api functions #
+#################
+bookmark_set() {
+  # Bookmark a directory at a character, replacing whatever that character was
+  # bookmarking before -- the way setting a vim mark that is set does.
+  #
+  # Args:
+  #   $1: char: the bookmark character
+  #   $2: path: directory to bookmark (default: the current directory)
+  local char="$1" path="${2:-$PWD}"
+
+  path="${path/#\~/$HOME}"
+
+  if [ ! -d "$path" ]; then
+    notify "Error: Directory '$path' does not exist"
+    exit 1
+  fi
+
+  path=$(cd "$path" && pwd -P)
+
+  if [ -z "$path" ]; then
+    notify "Error: Directory '${2:-$PWD}' could not be resolved"
+    exit 1
+  fi
+
+  # Rejected rather than escaped: a control character would have to survive
+  # a whole-line read and the picker, and no directory worth bookmarking has
+  # one.
+  case "$path" in
+    *[[:cntrl:]]*)
+      notify "Error: '$path' cannot be bookmarked: its path contains a control character"
+      exit 1
+      ;;
+  esac
+
+  # The character is not asked for here: inside tmux a key binding asks with
+  # command-prompt -1 and passes the answer in (see docs/bookmark.md), which
+  # is the only way it was ever reached.
+  if [ -z "$char" ]; then
+    notify "Error: 'bookmark set' needs a character to bookmark ${path/#"$HOME"/\~} at"
+    exit 1
+  fi
+
+  check_bookmark_char "$char"
+
+  # Written to a temp file and moved into place, so an interrupted write
+  # leaves the old bookmark rather than half a file.
+  local tmp="$BOOKMARKS_DIR/.$char.tmp"
+  printf '%s\n' "$path" > "$tmp" && mv "$tmp" "$BOOKMARKS_DIR/$char"
+
+  # What the status line shows just changed, and no session was created or
+  # killed for a tmux hook to notice it.
+  refresh_status
+
+  notify "Bookmark set: $char -> $path"
+}
+
+bookmark_remove() {
+  # Remove a bookmark.
+  #
+  # Args:
+  #   $1: char: the bookmark character to remove
+  local char="$1"
+
+  if [ -z "$char" ]; then
+    notify "Error: 'bookmark remove' needs a character"
+    exit 1
+  fi
+
+  check_bookmark_char "$char"
+
+  if ! bookmark_directory "$char" > /dev/null; then
+    notify "Error: No bookmark '$char'"
+    exit 1
+  fi
+
+  rm -f "$BOOKMARKS_DIR/$char"
+
+  refresh_status
+
+  notify "Bookmark removed: $char"
+}
+
+bookmark_get() {
+  # Print the directory a bookmark points at. A picker in its own right: it
+  # names a directory and nothing else, so
+  #
+  #   dirsesh at "$(dirsesh-extras bookmark get m)"
+  #
+  # goes straight to a session at whatever m bookmarks, skipping the fzf
+  # `pick` opens.
+  #
+  # Args:
+  #   $1: char: the bookmark character to look up
+  local char="$1"
+
+  if [ -z "$char" ]; then
+    notify "Error: 'bookmark get' needs a character"
+    exit 1
+  fi
+
+  check_bookmark_char "$char"
+
+  local dir
+  if ! dir=$(bookmark_directory "$char"); then
+    notify "Error: No bookmark '$char'"
+    exit 1
+  fi
+
+  printf '%s\n' "$dir"
+}
+
+bookmark_pick() {
+  # Choose a bookmark with fzf and print its directory. Backing out prints
+  # nothing and succeeds, the way any picker declines to answer.
+  if ! command -v fzf > /dev/null 2>&1; then
+    notify "Error: 'bookmark pick' needs fzf on PATH"
+    exit 1
+  fi
+
+  local entries
+  entries=$(bookmark_entries)
+
+  if [ -z "$entries" ]; then
+    notify "No bookmarks set"
+    exit 1
+  fi
+
+  # ctrl-x removes the bookmark under the cursor, then rebuilds the list from
+  # disk. fzf hands a binding to a shell, so the path is quoted for one; fzf
+  # itself quotes {1}.
+  local self
+  self=$(extras_path) || self="$0"
+  printf -v self '%q' "$self"
+
+  local selected
+  selected=$(printf '%s\n' "$entries" | fzf \
+    --cycle \
+    --delimiter=$'\t' \
+    --with-nth=3 \
+    --prompt "Bookmark > " \
+    --header $':: \e[33mctrl-x\e[0m to \e[31mremove\e[0m' \
+    --bind "ctrl-x:execute-silent($self bookmark remove {1})+reload($self bookmark _entries)")
+
+  [ -n "$selected" ] || exit 0
+
+  # The row carries the directory in its second field, so the answer is the
+  # bookmarked path rather than the ~ the row displayed.
+  local row="${selected#*$'\t'}"
+  printf '%s\n' "${row%%$'\t'*}"
+}
+
+bookmark_status() {
+  # Print the characters of the bookmarks with a tmux session open at them, the
+  # current session's styled differently. Only bookmarks with a session open
+  # are shown, so the line stays short. Nothing is notified: this runs on every
+  # status line redraw.
+  #
+  # Args:
+  #   $1: path: the directory of the session to treat as the current one
+  #       (default: the session tmux reports as current)
+  #   -s, --style: tmux style for the other sessions' characters
+  #   -c, --current-style: tmux style for the current session's character
+  local style="dim" current_style="fg=yellow,bold" current="" current_given=""
+
+  # Styles are given without their #[] wrapper, so a status line format
+  # holding one does not have to escape it.
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -s | --style | -c | --current-style)
+        if [ $# -lt 2 ]; then
+          notify "Error: '$1' needs a tmux style"
+          exit 1
+        fi
+        case "$1" in
+          -s | --style) style="$2" ;;
+          -c | --current-style) current_style="$2" ;;
+        esac
+        shift 2
+        ;;
+      -*)
+        notify "Error: Unknown option '$1' for 'bookmark status'"
+        exit 1
+        ;;
+      *)
+        if [ -n "$current_given" ]; then
+          notify "Error: Too many arguments for 'bookmark status'"
+          exit 1
+        fi
+        current="$1"
+        current_given=1
+        shift
+        ;;
+    esac
+  done
+
+  local open
+  open=$(tmux list-sessions -F '#{session_path}' 2>/dev/null)
+  [ -n "$open" ] || return 0
+
+  # Which session is current must be given by whoever draws the status line:
+  # tmux runs a #() command without a client and shares its output between
+  # them all, so asking here would answer the same for every client. A status
+  # line passes #{session_path}, expanded per client. Asking is the fallback
+  # for a shell with a session of its own.
+  if [ -z "$current_given" ] && [ -n "$TMUX" ]; then
+    current=$(tmux display-message -p '#{session_path}' 2>/dev/null)
+  fi
+
+  # Each character is padded inside its own style, so a style with a
+  # background reads as a block. Each style is preceded by a reset, because
+  # tmux styles accumulate.
+  read_bookmarks | BOOKMARKS_OPEN_PATHS="$open" BOOKMARKS_CURRENT_PATH="$current" \
+    BOOKMARKS_STYLE="$style" BOOKMARKS_CURRENT_STYLE="$current_style" awk -F'\t' '
+      BEGIN {
+        n = split(ENVIRON["BOOKMARKS_OPEN_PATHS"], paths, "\n")
+        for (i = 1; i <= n; i++) if (paths[i] != "") open[paths[i]]
+        current = ENVIRON["BOOKMARKS_CURRENT_PATH"]
+        style = ENVIRON["BOOKMARKS_STYLE"]
+        current_style = ENVIRON["BOOKMARKS_CURRENT_STYLE"]
+      }
+
+      $2 in open {
+        out = out "#[default]#[" (current != "" && $2 == current ? current_style : style) "] " $1 " "
+      }
+
+      END { if (out != "") print out "#[default]" }
+    '
+}
+
+status_init() {
+  # Install the tmux hooks that keep the status line current. Meant for
+  # tmux.conf, where it runs once per server:
+  #
+  #   run-shell "dirsesh-extras bookmark status-init"
+  #
+  # A status line is only redrawn every status-interval seconds, so a session
+  # opened or killed elsewhere would otherwise take that long to show up in
+  # `bookmark status`. session-created and session-closed are the two moments
+  # its answer changes without this program being involved; setting and
+  # removing a bookmark refresh the line on their own.
+  #
+  # Both hooks are global: a session's own options are already freed when
+  # session-closed fires, so a hook set on the session never runs at all.
+  local self
+  if ! self=$(extras_path); then
+    notify "Error: could not resolve the path to dirsesh-extras"
+    exit 1
+  fi
+
+  install_status_hook session-created "$self" || exit 1
+  install_status_hook session-closed "$self" || exit 1
+}
+
+# Parse arguments
+if [ $# -eq 0 ]; then
+  usage
+  exit 0
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  set)
+    bookmark_set "$1" "$2"
+    ;;
+  remove)
+    bookmark_remove "$1"
+    ;;
+  get)
+    bookmark_get "$1"
+    ;;
+  pick)
+    if [ $# -gt 0 ]; then
+      notify "Error: 'bookmark pick' takes no arguments"
+      exit 1
+    fi
+    bookmark_pick
+    ;;
+  list)
+    read_bookmarks
+    ;;
+  status)
+    bookmark_status "$@"
+    ;;
+  status-init)
+    if [ $# -gt 0 ]; then
+      notify "Error: 'bookmark status-init' takes no arguments"
+      exit 1
+    fi
+    status_init
+    ;;
+  _entries)
+    # Internal: rebuilds the picker's rows for its reload binding.
+    bookmark_entries
+    ;;
+  "$HOOK_REFRESH")
+    # Internal: invoked by the hooks `bookmark status-init` installs.
+    refresh_status
+    ;;
+  help | -help)
+    usage
+    ;;
+  *)
+    notify "Error: Unknown command '$command' for 'dirsesh-extras bookmark'"
+    usage
+    exit 1
+    ;;
+esac

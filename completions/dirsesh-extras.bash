@@ -15,6 +15,11 @@ _dirsesh_extras_log_sessions() {
     find "$dir" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort
 }
 
+_dirsesh_extras_bookmark_chars() {
+    # Every bookmark as "char<TAB>directory"; the character is the first field.
+    dirsesh-extras bookmark list 2>/dev/null | cut -f1
+}
+
 _dirsesh_extras_windows() {
     # -a: every window on the server, not just the current session's. The
     # window a toggle is looking for is often in the session you are not in.
@@ -28,7 +33,7 @@ _dirsesh_extras_completions() {
     cmd="${COMP_WORDS[1]}"
 
     subcmds="pick-dir pick-repo pick-repo-brief pick-worktree"
-    subcmds="$subcmds session-switcher last-session kill-session logs"
+    subcmds="$subcmds session-switcher last-session kill-session logs bookmark"
     subcmds="$subcmds toggle-window smart-split help"
 
     # Completing the subcommand itself
@@ -50,6 +55,31 @@ _dirsesh_extras_completions() {
             # The one optional argument is a session dirsesh has logged.
             [ "$COMP_CWORD" -eq 2 ] || return 0
             COMPREPLY=($(compgen -W "-help $(_dirsesh_extras_log_sessions)" -- "$cur"))
+            return 0
+            ;;
+        bookmark)
+            # Its own subcommand first, then whatever that one takes: a
+            # bookmarked character for `remove` and `get`, the character to
+            # bookmark at and then a directory for `set`.
+            if [ "$COMP_CWORD" -eq 2 ]; then
+                COMPREPLY=($(compgen -W "-help set remove get pick list status status-init" -- "$cur"))
+                return 0
+            fi
+            case "${COMP_WORDS[2]}" in
+                remove | get)
+                    [ "$COMP_CWORD" -eq 3 ] || return 0
+                    COMPREPLY=($(compgen -W "$(_dirsesh_extras_bookmark_chars)" -- "$cur"))
+                    ;;
+                set)
+                    # The character comes first and is the user's to pick; the
+                    # directory after it is the one being bookmarked.
+                    [ "$COMP_CWORD" -gt 3 ] || return 0
+                    COMPREPLY=($(compgen -d -- "$cur"))
+                    ;;
+                status)
+                    COMPREPLY=($(compgen -W "-s --style -c --current-style" -- "$cur"))
+                    ;;
+            esac
             return 0
             ;;
         toggle-window)

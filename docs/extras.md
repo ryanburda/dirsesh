@@ -10,7 +10,8 @@ touching your sessions.
 
 `dirsesh-extras` is for the other case. If you would rather `dirsesh` be your session manager
 and not just the half that creates them, it ships the other half as a separate command — the
-pickers here, and the session switching and killing commands that pair with them.
+pickers here, the [bookmarks](bookmark.md) that pin the directories you keep coming back to,
+and the session switching and killing commands that pair with them.
 
 It is a separate command on purpose. Everything in `dirsesh-extras` is opinionated in a way
 `dirsesh` deliberately is not. Keeping it out of `dirsesh` means those opinions are something
@@ -36,6 +37,15 @@ Usage:
   dirsesh-extras logs [session]                                          # Browse the logs a dirsesh configuration wrote
     session                                                              # Browse only this session's logs
 
+  dirsesh-extras bookmark <command> [args...]                           # Bookmark directories, one printable character each
+    set <char> [path]                                                    # Bookmark a directory (path defaults to the current directory)
+    remove <char>                                                        # Remove a bookmark
+    get <char>                                                           # Print the directory a bookmark points at
+    pick                                                                 # Choose a bookmark with fzf and print its directory
+    list                                                                 # Every bookmark as "char<TAB>directory"
+    status [path]                                                        # Bookmarks with a tmux session open at them, for a status line
+    status-init                                                          # Install the tmux hooks `status` needs (put this in tmux.conf)
+
   dirsesh-extras toggle-window <name> <command...>                       # Switch to a window, creating it if it is not there
     name                                                                 # The window's name, and what it is found by
     command...                                                           # Run in the window when it is created
@@ -53,6 +63,7 @@ Usage:
 The pickers print a path on stdout, so they compose with dirsesh:
 
   dirsesh at "$(dirsesh-extras pick-repo)"
+  dirsesh at "$(dirsesh-extras bookmark get m)"
 ```
 
 Each subcommand documents itself. `-help` prints what it lists, how it behaves at the edges,
@@ -66,6 +77,10 @@ dirsesh-extras smart-split -help
 That is where the per-command detail lives, so it cannot drift from the scripts the way a second
 copy in this file would.
 
+`bookmark` is the exception: it has subcommands of its own, a tmux status line and the
+keybindings that go with them, which is more than a header comment holds. See
+[Bookmarks](bookmark.md).
+
 ## Binding them
 
 ```tmux
@@ -75,6 +90,10 @@ bind-key d popup -E 'dirsesh at "$(dirsesh-extras pick-dir)"'
 bind-key r popup -E 'dirsesh at "$(dirsesh-extras pick-repo)"'
 bind-key R popup -E 'dirsesh at "$(dirsesh-extras pick-repo-brief)"'
 bind-key w popup -E 'dirsesh at "$(dirsesh-extras pick-worktree)"'
+
+bind-key b popup -E 'dirsesh at "$(dirsesh-extras bookmark pick)"'
+bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"dirsesh-extras bookmark set '%%%'\""
+bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh-extras bookmark remove '%%%'\""
 
 bind-key \; run-shell -b "dirsesh-extras last-session"
 bind-key s popup -h 35% -w 40% -E "dirsesh-extras session-switcher"
@@ -93,6 +112,7 @@ alias d='dirsesh at "$(dirsesh-extras pick-dir)"'
 alias r='dirsesh at "$(dirsesh-extras pick-repo)"'
 alias R='dirsesh at "$(dirsesh-extras pick-repo-brief)"'
 alias w='dirsesh at "$(dirsesh-extras pick-worktree)"'
+alias b='dirsesh at "$(dirsesh-extras bookmark pick)"'
 ```
 
 This ensures your muscle memory is similar no matter if you are in or out of tmux.
