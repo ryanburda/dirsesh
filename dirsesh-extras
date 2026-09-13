@@ -95,9 +95,10 @@ extra_help() {
 }
 
 run_extra() {
-  # Run a script under extras/, passing on any remaining arguments. The
-  # subcommand and the file it runs carry the same kebab-case name; only the
-  # pickers differ, living a directory down as extras/pick/<name>.
+  # Run a script under extras/, passing on any remaining arguments. A
+  # subcommand named <group>-<name> lives a directory down as
+  # extras/<group>/<name>; anything else sits directly under extras/ under
+  # the subcommand's own name.
   #
   # Args:
   #   $1: name: the script's path relative to extras/
@@ -151,16 +152,16 @@ case "$command" in
     run_extra pick/worktree "$@"
     ;;
   session-switch)
-    run_extra session-switch "$@"
+    run_extra session/switch "$@"
     ;;
   session-last)
-    run_extra session-last "$@"
+    run_extra session/last "$@"
     ;;
   session-kill)
-    run_extra session-kill "$@"
+    run_extra session/kill "$@"
     ;;
   session-logs)
-    run_extra session-logs "$@"
+    run_extra session/logs "$@"
     ;;
   bookmark)
     run_extra bookmark "$@"
