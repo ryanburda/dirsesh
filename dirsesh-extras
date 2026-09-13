@@ -25,15 +25,6 @@ Usage:
     status [path]                                                        # Bookmarks with a tmux session open at them, for a status line
     status-init                                                          # Install the tmux hooks `status` needs (put this in tmux.conf)
 
-  dirsesh-extras toggle-window <name> <command...>                       # Switch to a window, creating it if it is not there
-    name                                                                 # The window's name, and what it is found by
-    command...                                                           # Run in the window when it is created
-  dirsesh-extras smart-split <-h|-v> <threshold> <small-pct> [args...]   # Split the current pane, evenly or small
-    -h|-v                                                                # Split left/right (-h) or top/bottom (-v)
-    threshold                                                            # Percent of the window past which small-pct is used
-    small-pct                                                            # Size of the new pane past the threshold
-    args...                                                              # Forwarded to tmux split-window
-
   dirsesh-extras pick-dir                                                # Print a directory under $HOME
   dirsesh-extras pick-repo                                               # Print a git repository under $HOME
   dirsesh-extras pick-repo-brief                                         # Print a git repository under $HOME that has changes
@@ -125,8 +116,8 @@ run_extra() {
     exit 1
   fi
 
-  # -help rather than -h: `smart-split -h` is a horizontal split, and a flag
-  # that means two things on one subcommand means two things everywhere.
+  # -help rather than -h: subcommands have flags of their own, and a flag that
+  # means two things on one subcommand means two things everywhere.
   if [ "$1" = "-help" ]; then
     extra_help "$script"
     return 0
@@ -173,12 +164,6 @@ case "$command" in
     ;;
   bookmark)
     run_extra bookmark "$@"
-    ;;
-  toggle-window)
-    run_extra toggle-window "$@"
-    ;;
-  smart-split)
-    run_extra smart-split "$@"
     ;;
   help | -help)
     usage

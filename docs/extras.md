@@ -46,15 +46,6 @@ Usage:
     status [path]                                                        # Bookmarks with a tmux session open at them, for a status line
     status-init                                                          # Install the tmux hooks `status` needs (put this in tmux.conf)
 
-  dirsesh-extras toggle-window <name> <command...>                       # Switch to a window, creating it if it is not there
-    name                                                                 # The window's name, and what it is found by
-    command...                                                           # Run in the window when it is created
-  dirsesh-extras smart-split <-h|-v> <threshold> <small-pct> [args...]   # Split the current pane, evenly or small
-    -h|-v                                                                # Split left/right (-h) or top/bottom (-v)
-    threshold                                                            # Percent of the window past which small-pct is used
-    small-pct                                                            # Size of the new pane past the threshold
-    args...                                                              # Forwarded to tmux split-window
-
   dirsesh-extras pick-dir                                                # Print a directory under $HOME
   dirsesh-extras pick-repo                                               # Print a git repository under $HOME
   dirsesh-extras pick-repo-brief                                         # Print a git repository under $HOME that has changes
@@ -71,7 +62,7 @@ and anything worth knowing before you bind it to a key:
 
 ```bash
 dirsesh-extras pick-repo-brief -help
-dirsesh-extras smart-split -help
+dirsesh-extras logs -help
 ```
 
 That is where the per-command detail lives, so it cannot drift from the scripts the way a second
@@ -98,8 +89,6 @@ bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh-extra
 bind-key \; run-shell -b "dirsesh-extras last-session"
 bind-key s popup -h 35% -w 40% -E "dirsesh-extras session-switcher"
 bind-key T popup -h 35% -w 40% -E "dirsesh at $(mktemp -d)"
-bind-key j run-shell 'dirsesh-extras smart-split -v 78 22 -c "#{pane_current_path}"'
-bind-key l run-shell 'dirsesh-extras smart-split -h 65 35 -c "#{pane_current_path}"'
 ```
 
 A picker is worth binding twice — once in `tmux.conf` like the above for when tmux is running,

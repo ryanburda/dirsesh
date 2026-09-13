@@ -26,8 +26,6 @@ _dirsesh_extras_commands() {
         'kill-session:Kill a running session'
         'logs:Browse the logs a dirsesh configuration wrote'
         'bookmark:Bookmark directories, one printable character each'
-        'toggle-window:Switch to a window, creating it if it is not there'
-        'smart-split:Split the current pane, evenly or small'
         'help:Show help message'
     )
 
@@ -69,14 +67,6 @@ _dirsesh_extras_bookmark_chars() {
     local -a bookmarks
     bookmarks=(${(f)"$(dirsesh-extras bookmark _entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 ":" d }')"})
     _describe 'bookmark' bookmarks
-}
-
-_dirsesh_extras_windows() {
-    # -a: every window on the server, not just the current session's. The
-    # window a toggle is looking for is often in the session you are not in.
-    local -a windows
-    windows=(${(f)"$(tmux list-windows -a -F '#{window_name}' 2>/dev/null | sort -u)"})
-    _describe 'window' windows
 }
 
 _dirsesh_extras() {
@@ -129,17 +119,6 @@ _dirsesh_extras() {
                         ;;
                 esac
             fi
-            ;;
-        toggle-window)
-            if (( CURRENT == 2 )); then
-                _dirsesh_extras_windows
-                compadd -- -help
-            else
-                _command_names -e
-            fi
-            ;;
-        smart-split)
-            (( CURRENT == 2 )) && compadd -- -h -v -help
             ;;
         pick-* | last-session)
             (( CURRENT == 2 )) && compadd -- -help

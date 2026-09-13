@@ -7,7 +7,7 @@
 #
 # Meant to be run from a tmux window or popup:
 #
-#   bind-key L run-shell "dirsesh-extras toggle-window dirsesh-logs 'dirsesh-extras logs'"
+#   bind-key L new-window -n dirsesh-logs "dirsesh-extras logs"
 #
 # dirsesh writes a configuration's `start` and `kill` output to
 # $XDG_STATE_HOME/dirsesh/logs/<session>/dirsesh.log, and a configuration may write
