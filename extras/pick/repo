@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#
+# pick-repo: print the directory of a git repository under $HOME, chosen with fzf.
+#
+# Usage: dirsesh-extras pick-repo
+#
+# The walk is bounded at 5 levels deep and prunes .git, node_modules and every
+# hidden directory, so it stays fast and does not descend into a dependency
+# that vendored its own repository. Repositories are found by their .git rather
+# than by asking each directory whether it is one, which is what makes linked
+# worktrees and bare-clone checkouts show up alongside ordinary clones: both
+# carry a .git *file* rather than a directory.
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path -- and a program
+  # run from a tmux popup loses its stderr when the popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+# fzf is how this prints its answer, so it is checked up front rather than
+# after the walk that finds the candidates.
+if ! command -v fzf > /dev/null 2>&1; then
+  note "Error: fzf is required but was not found on PATH"
+  exit 1
+fi
+
+# -maxdepth 5 bounds the walk under $HOME; -prune on .git and node_modules
+# stops the descent right after printing a hit, so nested repos (a dependency
+# vendored with its own .git) are not walked into; -prune on every other
+# dot-directory keeps hidden directories -- caches like ~/.cache and ~/.npm,
+# but also ~/.config, ~/.ssh, etc. -- out of the walk entirely. node_modules
+# matches are printed too, only to be pruned from descent, so they are
+# filtered back out below.
+#
+# Matching .git by name rather than asking each directory whether it has one,
+# because .git is not always a directory: a linked worktree, and a checkout of
+# a bare clone, both carry a .git *file* holding a gitdir: line.
+dirs=$(find "$HOME" -maxdepth 5 \( -name .git -o -name node_modules \) -prune -print -o -name '.*' -prune 2>/dev/null \
+  | grep '/\.git$' \
+  | sed 's#/\.git$##' \
+  | LC_ALL=C sort -u)
+
+if [ -z "$dirs" ]; then
+  note "No git repositories found"
+  exit 1
+fi
+
+selected=$(printf '%s\n' "$dirs" | fzf --cycle --prompt "Repo > ")
+
+# Backing out is not a failure: say nothing and succeed.
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "$selected"

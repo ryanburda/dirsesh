@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# kill-session: kill a running tmux session, chosen with fzf.
+#
+# Usage: dirsesh-extras kill-session [session]
+#   session  Kill this session instead of showing the picker.
+
+notify() {
+  # Show a message: tmux display-message inside tmux, stderr otherwise.
+  local msg="$1"
+  if [ -n "$TMUX" ]; then
+    tmux display-message "$msg"
+  else
+    echo "$msg" >&2
+  fi
+}
+
+session="$1"
+
+# No session given: pick one with fzf.
+if [ -z "$session" ]; then
+  # Formatted rather than cut out of `tmux ls`, which would split a name at
+  # its first colon.
+  sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+
+  if [ -z "$sessions" ]; then
+    notify "No active sessions to kill"
+    exit 1
+  fi
+
+  session=$(echo "$sessions" | fzf --cycle --prompt "Kill Session > ")
+
+  [ -n "$session" ] || exit 0
+fi
+
+if ! tmux has-session -t "=$session" 2>/dev/null; then
+  notify "Error: Session '$session' is not running"
+  exit 1
+fi
+
+tmux kill-session -t "=$session"

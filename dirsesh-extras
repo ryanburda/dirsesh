@@ -1,0 +1,173 @@
+#!/bin/bash
+
+usage() {
+  cat <<'EOF'
+dirsesh-extras - Pickers and session management to pair with dirsesh
+
+Usage:
+  dirsesh-extras                                                         # Show help message
+  dirsesh-extras <command> -help                                         # Show what one command does, in detail
+
+  dirsesh-extras session-switcher [session]                              # Switch to another running session
+    session                                                              # Switch straight to this one instead of picking
+  dirsesh-extras last-session                                            # Switch back to the session you came from
+  dirsesh-extras kill-session [session]                                  # Kill a running session
+    session                                                              # Kill this one instead of picking
+
+  dirsesh-extras toggle-window <name> <command...>                       # Switch to a window, creating it if it is not there
+    name                                                                 # The window's name, and what it is found by
+    command...                                                           # Run in the window when it is created
+  dirsesh-extras smart-split <-h|-v> <threshold> <small-pct> [args...]   # Split the current pane, evenly or small
+    -h|-v                                                                # Split left/right (-h) or top/bottom (-v)
+    threshold                                                            # Percent of the window past which small-pct is used
+    small-pct                                                            # Size of the new pane past the threshold
+    args...                                                              # Forwarded to tmux split-window
+
+  dirsesh-extras pick-dir                                                # Print a directory under $HOME
+  dirsesh-extras pick-repo                                               # Print a git repository under $HOME
+  dirsesh-extras pick-repo-brief                                         # Print a git repository under $HOME that has changes
+  dirsesh-extras pick-worktree                                           # Print a worktree of the current repository
+
+The pickers print a path on stdout, so they compose with dirsesh:
+
+  dirsesh at "$(dirsesh-extras pick-repo)"
+
+See https://github.com/ryanburda/tmux-dirsesh for more documentation
+EOF
+}
+
+####################
+# helper functions #
+####################
+notify() {
+  # Show a message: tmux display-message inside tmux, stderr otherwise.
+  # stderr because the pickers are run inside a command substitution whose
+  # stdout is their return value -- and a program run from a tmux popup loses
+  # its stderr when the popup closes.
+  local msg="$1"
+  if [ -n "$TMUX" ]; then
+    tmux display-message "$msg"
+  else
+    echo "$msg" >&2
+  fi
+}
+
+self_dir() {
+  # Directory holding this program, with symlinks resolved. The scripts live
+  # beside it in the checkout, and install.sh links this program onto PATH,
+  # so the link has to be followed to find them.
+  local self="$0"
+  case "$self" in
+    */*) ;;
+    *) self=$(command -v -- "$self") || return 1 ;;
+  esac
+
+  # Hop link by link rather than trusting `readlink -f`, which BSD readlink
+  # (macOS) does not have.
+  while [ -L "$self" ]; do
+    local target=$(readlink "$self")
+    case "$target" in
+      /*) self="$target" ;;
+      *) self="$(dirname "$self")/$target" ;;
+    esac
+  done
+
+  (cd "$(dirname "$self")" && pwd -P)
+}
+
+extra_help() {
+  # Print a script's header comment: the run of #-lines under its shebang,
+  # with the leading `# ` taken off. That header is the only place a
+  # subcommand's usage is written down, so `-help` cannot drift from it.
+  #
+  # Args:
+  #   $1: script: path to the script under extras/
+  #
+  # The second sed drops the blank line the header's opening `#` leaves behind.
+  sed -n '2,${
+    /^#/!q
+    s/^#[[:space:]]\{0,1\}//
+    p
+  }' "$1" | sed '/./,$!d'
+}
+
+run_extra() {
+  # Run a script under extras/, passing on any remaining arguments. The
+  # subcommand and the file it runs carry the same kebab-case name; only the
+  # pickers differ, living a directory down as extras/pick/<name>.
+  #
+  # Args:
+  #   $1: name: the script's path relative to extras/
+  local name="$1"
+  shift
+
+  local dir
+  if ! dir=$(self_dir); then
+    notify "Error: could not locate the extras scripts"
+    exit 1
+  fi
+
+  local script="$dir/extras/$name"
+  if [ ! -f "$script" ]; then
+    notify "Error: missing script '$script'"
+    exit 1
+  fi
+
+  # -help rather than -h: `smart-split -h` is a horizontal split, and a flag
+  # that means two things on one subcommand means two things everywhere.
+  if [ "$1" = "-help" ]; then
+    extra_help "$script"
+    return 0
+  fi
+
+  # `bash` rather than executing it directly, so a checkout whose files lost
+  # their execute bit still works.
+  bash "$script" "$@"
+}
+
+# Parse arguments
+if [ $# -eq 0 ]; then
+  usage
+  exit 0
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  pick-dir)
+    run_extra pick/dir "$@"
+    ;;
+  pick-repo)
+    run_extra pick/repo "$@"
+    ;;
+  pick-repo-brief)
+    run_extra pick/repo-brief "$@"
+    ;;
+  pick-worktree)
+    run_extra pick/worktree "$@"
+    ;;
+  session-switcher)
+    run_extra session-switcher "$@"
+    ;;
+  last-session)
+    run_extra last-session "$@"
+    ;;
+  kill-session)
+    run_extra kill-session "$@"
+    ;;
+  toggle-window)
+    run_extra toggle-window "$@"
+    ;;
+  smart-split)
+    run_extra smart-split "$@"
+    ;;
+  help | -help)
+    usage
+    ;;
+  *)
+    notify "Error: Unknown command '$command'"
+    usage
+    exit 1
+    ;;
+esac

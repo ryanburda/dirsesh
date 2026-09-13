@@ -36,18 +36,23 @@ fi
 
 mkdir -p "$BIN_DIR"
 
-src="$DIRSESH_HOME/dirsesh"
-dest="$BIN_DIR/dirsesh"
+# dirsesh-extras is linked too: its pickers are what you substitute into
+# `dirsesh at`, so it is only reachable from a shell alias or a tmux bind if
+# it is on PATH under its own name.
+for prog in dirsesh dirsesh-extras; do
+    src="$DIRSESH_HOME/$prog"
+    dest="$BIN_DIR/$prog"
 
-[ -f "$src" ] || die "expected $src to exist"
+    [ -f "$src" ] || die "expected $src to exist"
 
-if [ -e "$dest" ] && [ ! -L "$dest" ]; then
-    die "$dest exists and is not a symlink; remove it and retry"
-fi
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        die "$dest exists and is not a symlink; remove it and retry"
+    fi
 
-chmod +x "$src"
-ln -sfn "$src" "$dest"
-echo "Linked $dest -> $src"
+    chmod +x "$src"
+    ln -sfn "$src" "$dest"
+    echo "Linked $dest -> $src"
+done
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

@@ -37,15 +37,6 @@ dirsesh at "$(git worktree list | fzf | awk '{print $1}')"
 dirsesh at "$(zoxide query -i)"
 ```
 
-Or leave `path` blank and dirsesh will fuzzy-find one for you:
-
-```bash
-dirsesh at
-```
-
-The default command walks `$HOME` (up to 5 levels deep, skipping hidden directories)
-for git repos and hands them to `fzf`.
-
 ### Session creation
 
 Once a directory is passed to `dirsesh at <path>`, every session is created the same way:
@@ -105,8 +96,8 @@ dirsesh - One configurable tmux session per directory
 Usage:
   dirsesh                                        # Show help message
 
-  dirsesh at [path] [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
-    path                                         # Defaults to a fuzzy-find of git repos under $HOME
+  dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
+    path                                         # The directory to start the session at
     -noconfig                                    # Ignore any configuration claiming that path
     -name[=NAME]                                 # Name the session; prompts for one if NAME is not given
 
@@ -115,10 +106,19 @@ Usage:
   dirsesh init                                   # Install the hook that cleans up configured sessions (put this in tmux.conf)
 ```
 
-## Workflow
+## Extras
 
-See [Workflow](docs/workflow.md) for an example of how to integrate `dirsesh` into
-your day-to-day setup.
+`dirsesh` creates sessions. Switching between them and killing them are separate jobs that
+plenty of other tools already do well, so if you have one you like, keep using it.
+
+If you would rather `dirsesh` be your session manager anyway, `dirsesh-extras` is a second
+command holding the rest of it:
+- the directory pickers that pair with `dirsesh at`
+- a session switcher/killer that uses fzf
+- a directory bookmarker
+- and other handy features
+
+See [Extras](docs/extras.md).
 
 ## Install
 
@@ -128,7 +128,7 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install
 
 The install script:
 - clones the repository to `${XDG_DATA_HOME:-~/.local/share}/tmux-dirsesh`
-- symlinks `dirsesh` into `~/.local/bin`.
+- symlinks `dirsesh` and `dirsesh-extras` into `~/.local/bin`.
 
 Re-run it any time to update.
 
@@ -136,18 +136,19 @@ Re-run it any time to update.
 <summary><strong style="font-size: 1.25em;">Custom Installation</strong></summary>
 
 Two environment variables change where things land: `DIRSESH_HOME` (where the repo is cloned) and
-`BIN_DIR` (where the `dirsesh` symlink goes).
+`BIN_DIR` (where the symlinks go).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install.sh \
   | DIRSESH_HOME=~/src/dirsesh BIN_DIR=~/bin sh
 ```
 
-Or manually: clone the repo, symlink `dirsesh` into a directory on your PATH.
+Or manually: clone the repo, symlink both programs into a directory on your PATH.
 
 ```bash
 git clone https://github.com/ryanburda/tmux-dirsesh.git ~/git/tmux-dirsesh
-ln -s ~/git/tmux-dirsesh/dirsesh ~/.local/bin/dirsesh
+ln -s ~/git/tmux-dirsesh/dirsesh        ~/.local/bin/dirsesh
+ln -s ~/git/tmux-dirsesh/dirsesh-extras ~/.local/bin/dirsesh-extras
 ```
 </details>
 
@@ -161,12 +162,22 @@ cloned elsewhere.
 
 ```bash
 source ~/.local/share/tmux-dirsesh/completions/dirsesh.bash
+source ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.bash
 ```
 
-**Zsh**: add to `~/.zshrc` (or rename `dirsesh.zsh` to `_dirsesh` in an existing fpath directory):
+**Zsh**: `compinit` finds a completion by file name, so link them in as `_dirsesh` and
+`_dirsesh-extras`:
 
 ```bash
-fpath=(~/.local/share/tmux-dirsesh/completions $fpath)
+mkdir -p ~/.zsh/completions
+ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.zsh        ~/.zsh/completions/_dirsesh
+ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.zsh ~/.zsh/completions/_dirsesh-extras
+```
+
+and add to `~/.zshrc`, before `compinit` runs:
+
+```bash
+fpath=(~/.zsh/completions $fpath)
 autoload -Uz compinit && compinit
 ```
 
@@ -174,6 +185,7 @@ autoload -Uz compinit && compinit
 
 ```bash
 ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.fish ~/.config/fish/completions/
+ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.fish ~/.config/fish/completions/
 ```
 </details>
 

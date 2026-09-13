@@ -1,12 +1,19 @@
 #compdef dirsesh
 # Zsh completion for dirsesh (one tmux session per directory)
 #
-# Installation options:
-# 1. Add to fpath and autoload:
-#      fpath=(/path/to/completions $fpath)
-#      autoload -Uz compinit && compinit
-# 2. Or source directly in .zshrc:
-#      source /path/to/dirsesh.zsh
+# compinit finds a completion by file name, so link this into a directory on
+# your fpath as `_dirsesh`:
+#
+#     mkdir -p ~/.zsh/completions
+#     ln -s /path/to/dirsesh.zsh ~/.zsh/completions/_dirsesh
+#
+# and, in .zshrc before compinit runs:
+#
+#     fpath=(~/.zsh/completions $fpath)
+#     autoload -Uz compinit && compinit
+#
+# Sourcing this file instead defines the function but registers nothing, and
+# needs a compdef of its own: `compdef _dirsesh dirsesh`.
 
 _dirsesh_commands() {
     local commands=(

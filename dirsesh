@@ -17,8 +17,8 @@ dirsesh - One configurable tmux session per directory
 Usage:
   dirsesh                                        # Show help message
 
-  dirsesh at [path] [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
-    path                                         # Defaults to a fuzzy-find of git repos under $HOME
+  dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
+    path                                         # The directory to start the session at
     -noconfig                                    # Ignore any configuration claiming that path
     -name[=NAME]                                 # Name the session; prompts for one if NAME is not given
 
@@ -720,32 +720,6 @@ session_at() {
   switch_or_attach "$session_name"
 }
 
-default_at_cmd() {
-  # dirsesh's own answer for `dirsesh at` given no path: fuzzy-find a git
-  # repo under $HOME. This is what makes a bare `dirsesh at` useful right out
-  # of the box. Anyone who wants a different set of candidates passes their
-  # own command instead: `dirsesh at "$(mycommand)"`.
-  #
-  # Requires fzf.
-  if ! command -v fzf >/dev/null 2>&1; then
-    notify "Error: 'dirsesh at' needs a path; install fzf for the default picker, or pass one yourself: dirsesh at \"\$(mycommand)\""
-    return 1
-  fi
-
-  # -maxdepth 5 bounds the walk under $HOME; -prune on .git and node_modules
-  # stops the descent right after printing a hit, so nested repos (a
-  # dependency vendored with its own .git) are not walked into; -prune on
-  # every other dot-directory keeps hidden directories -- caches like
-  # ~/.cache and ~/.npm, but also ~/.config, ~/.ssh, etc. -- out of the walk
-  # entirely. node_modules matches are printed too, only to be pruned from
-  # descent, so they are filtered back out below.
-  find "$HOME" -maxdepth 5 \( -name .git -o -name node_modules \) -prune -print -o -name '.*' -prune 2>/dev/null \
-    | grep '/\.git$' \
-    | sed 's#/\.git$##' \
-    | LC_ALL=C sort -u \
-    | fzf --cycle --prompt "dirsesh at > "
-}
-
 at_path() {
   # Start a session at a directory, or switch to the session already open there
   local session_flags=() paths=() arg
@@ -765,19 +739,23 @@ at_path() {
     exit 1
   fi
 
-  local selected
+  # A path is required. dirsesh once picked one itself when given none, which
+  # could not survive an unquoted `dirsesh at $(chooser)`: a chooser you back
+  # out of prints nothing, the shell drops the empty word, and what reaches
+  # here is indistinguishable from asking for no path at all -- so backing out
+  # of your own chooser opened dirsesh's instead. Requiring the argument makes
+  # the two cases distinct again.
   if [ "${#paths[@]}" -eq 0 ]; then
-    # No path at all, as distinct from one argument that resolved empty
-    # (below): dirsesh picks one itself with its default picker.
-    selected=$(default_at_cmd) || exit 1
-  else
-    selected="${paths[0]}"
+    notify "Error: 'dirsesh at' needs a directory, e.g. dirsesh at \"\$(dirsesh-extras pick-repo)\""
+    exit 1
   fi
 
-  # No directory is the answer a chooser gives when it declines -- pressing
-  # escape leaves `dirsesh at "$(find $HOME -type d | fzf)"` with an empty
-  # argument, and an unquoted substitution leaves it with none at all.
-  # Neither is an error, and there is nothing to open.
+  local selected="${paths[0]}"
+
+  # An empty argument is the answer a chooser gives when it declines: pressing
+  # escape leaves `dirsesh at "$(dirsesh-extras pick-repo)"` with one empty
+  # argument. That is not an error, and there is nothing to open. Quoting the
+  # substitution is what keeps it an argument at all.
   [ -n "$selected" ] || exit 0
 
   session_at "$selected" ${session_flags+"${session_flags[@]}"}

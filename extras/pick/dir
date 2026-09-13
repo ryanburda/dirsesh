@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# pick-dir: print a directory under $HOME, chosen with fzf.
+#
+# Usage: dirsesh-extras pick-dir
+#
+# No git involved and no depth limit: this is the picker for when the thing you
+# want a session at is a plain directory. It is also the slowest to appear on a
+# large $HOME, since it walks the whole tree.
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path -- and a program
+  # run from a tmux popup loses its stderr when the popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+# fzf is how this prints its answer, so it is checked up front rather than
+# after the walk that finds the candidates.
+if ! command -v fzf > /dev/null 2>&1; then
+  note "Error: fzf is required but was not found on PATH"
+  exit 1
+fi
+
+selected=$(find "$HOME" -name ".*" -prune -o -type d -print | fzf --cycle --prompt "Directory > ")
+
+# Backing out is not a failure: say nothing and succeed.
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "$selected"

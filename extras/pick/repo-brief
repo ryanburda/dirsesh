@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+#
+# pick-repo-brief: print the directory of a git repository under $HOME that has
+# changes, chosen with fzf.
+#
+# Usage: dirsesh-extras pick-repo-brief
+#
+# A repository has changes when it has any of:
+#   - commits waiting upstream
+#   - commits not yet pushed
+#   - uncommitted work (staged, unstaged or untracked)
+#
+#   :: 3 of 27 repositories have changes
+#
+#   ~/code/api        main ↑2 +41 -7
+#   ~/code/dotfiles   main ↓1
+#   ~/code/site       draft ↑1 ?3
+#
+#   ↑n     commits ahead of upstream
+#   ↓n     commits behind upstream
+#   +n -n  lines added and removed against HEAD, staged work included
+#   ?n     untracked files, counting a new directory once
+#
+# The header counts how many repositories made the list out of how many were
+# checked, so a short list is distinguishable from a broken one.
+#
+# Every repository is fetched before it is inspected, so the ahead/behind
+# counts are current. That is what makes this somewhat slow to appear.
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path -- and a program
+  # run from a tmux popup loses its stderr when the popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+# fzf is how this prints its answer, so it is checked up front rather than
+# after the walk that finds the candidates.
+if ! command -v fzf > /dev/null 2>&1; then
+  note "Error: fzf is required but was not found on PATH"
+  exit 1
+fi
+
+git_brief_row() {
+  # One fzf row for the repo at $1 -- "<path>\t<path>  <brief>", the brief
+  # being branch ↑ahead ↓behind +added -removed ?untracked -- or nothing with
+  # a non-zero status when the repository has nothing to report.
+  #
+  # The fetch happens here rather than in a pass of its own, so one job both
+  # fetches and inspects a repository and there is no barrier between the two.
+  #
+  # Args:
+  #   $1: dir: the repository to inspect
+  local dir="$1"
+  local branch ahead behind stats added removed untracked
+
+  git -C "$dir" rev-parse --git-dir > /dev/null 2>&1 || return 1
+
+  git -C "$dir" fetch --quiet 2>/dev/null
+
+  # Empty on a detached HEAD, which is still worth showing when it is dirty.
+  branch=$(git -C "$dir" branch --show-current 2>/dev/null)
+  [ -n "$branch" ] || branch="(detached)"
+
+  # With no upstream both counts come out 0, so a repository whose branch has
+  # never been pushed is listed only if it has uncommitted work.
+  ahead=$(git -C "$dir" log @{u}..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
+  behind=$(git -C "$dir" log HEAD..@{u} --oneline 2>/dev/null | wc -l | tr -d ' ')
+
+  # Against HEAD rather than the index, so staged work counts as a change too.
+  # Before the first commit there is no HEAD to compare against, and the index
+  # is measured against the empty tree instead.
+  if git -C "$dir" rev-parse --verify -q HEAD > /dev/null 2>&1; then
+    stats=$(git -C "$dir" diff HEAD --shortstat 2>/dev/null)
+  else
+    stats=$(git -C "$dir" diff --cached --shortstat 2>/dev/null)
+  fi
+  added=$(echo "$stats" | grep -o '[0-9]* insertion' | grep -o '[0-9]*')
+  removed=$(echo "$stats" | grep -o '[0-9]* deletion' | grep -o '[0-9]*')
+
+  # --exclude-standard so ignored files stay ignored, and --directory so a new
+  # directory counts once instead of once per file inside it -- both what
+  # `git status` itself shows.
+  untracked=$(git -C "$dir" ls-files --others --exclude-standard --directory \
+    --no-empty-directory 2>/dev/null | wc -l | tr -d ' ')
+
+  # Nothing waiting, nothing unpushed, nothing uncommitted, nothing new: no row.
+  [ "${ahead:-0}" -gt 0 ] || [ "${behind:-0}" -gt 0 ] \
+    || [ "${added:-0}" -gt 0 ] || [ "${removed:-0}" -gt 0 ] \
+    || [ "${untracked:-0}" -gt 0 ] || return 1
+
+  local blue='\033[34m' yellow='\033[33m' green='\033[32m' red='\033[31m'
+  local cyan='\033[36m' reset='\033[0m'
+  local brief="${blue}${branch}${reset}"
+  [ "${ahead:-0}" -gt 0 ] && brief+=" ${yellow}↑${ahead}${reset}"
+  [ "${behind:-0}" -gt 0 ] && brief+=" ${yellow}↓${behind}${reset}"
+  [ "${added:-0}" -gt 0 ] && brief+=" ${green}+${added}${reset}"
+  [ "${removed:-0}" -gt 0 ] && brief+=" ${red}-${removed}${reset}"
+  [ "${untracked:-0}" -gt 0 ] && brief+=" ${cyan}?${untracked}${reset}"
+
+  # The path is carried in a first column fzf is told not to display, so the
+  # brief can be coloured without the selection having to be parsed back out.
+  printf '%s\t%s  %b\n' "$dir" "$dir" "$brief"
+}
+
+# -maxdepth 5 bounds the walk under $HOME; -prune on .git and node_modules
+# stops the descent right after printing a hit, so nested repos (a dependency
+# vendored with its own .git) are not walked into; -prune on every other
+# dot-directory keeps hidden directories -- caches like ~/.cache and ~/.npm,
+# but also ~/.config, ~/.ssh, etc. -- out of the walk entirely. node_modules
+# matches are printed too, only to be pruned from descent, so they are
+# filtered back out below.
+#
+# Matching .git by name rather than asking each directory whether it has one,
+# because .git is not always a directory: a linked worktree, and a checkout of
+# a bare clone, both carry a .git *file* holding a gitdir: line.
+dirs=$(find "$HOME" -maxdepth 5 \( -name .git -o -name node_modules \) -prune -print -o -name '.*' -prune 2>/dev/null \
+  | grep '/\.git$' \
+  | sed 's#/\.git$##' \
+  | LC_ALL=C sort -u)
+
+if [ -z "$dirs" ]; then
+  note "No git repositories found"
+  exit 1
+fi
+
+# Inspected 8 at a time: each job opens a remote connection for its fetch, and
+# forking the whole list at once can hit the process limit. NUL separation so
+# repository paths with spaces survive. `|| true` because a repository with
+# nothing to report is the ordinary case, not an xargs failure.
+export -f git_brief_row
+rows=$(
+  printf '%s\n' "$dirs" | tr '\n' '\0' \
+    | xargs -0 -P 8 -n 1 \
+            bash -c 'git_brief_row "$1" || true' _ \
+    | LC_ALL=C sort
+)
+
+checked=$(printf '%s\n' "$dirs" | wc -l | tr -d ' ')
+changed=0
+[ -n "$rows" ] && changed=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
+
+if [ -z "$rows" ]; then
+  note "Nothing to show: none of the $checked repositories checked have changes"
+  exit 1
+fi
+
+# The header says how many of the repositories checked had changes, so an
+# empty-looking list is distinguishable from a short one.
+header=$(printf ':: \033[33m%s\033[0m of \033[33m%s\033[0m repositories have changes' \
+  "$changed" "$checked")
+
+selected=$(printf '%s\n' "$rows" \
+  | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "Repo > " --header "$header")
+
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "${selected%%	*}"
