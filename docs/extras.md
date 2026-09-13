@@ -29,7 +29,7 @@ Usage:
   dirsesh-extras                                                         # Show help message
   dirsesh-extras <command> -help                                         # Show what one command does, in detail
 
-  dirsesh-extras session-switcher [session]                              # Switch to another running session
+  dirsesh-extras switch-session [session]                                # Switch to another running session
     session                                                              # Switch straight to this one instead of picking
   dirsesh-extras last-session                                            # Switch back to the session you came from
   dirsesh-extras kill-session [session]                                  # Kill a running session
@@ -37,7 +37,7 @@ Usage:
   dirsesh-extras logs [session]                                          # Browse the logs a dirsesh configuration wrote
     session                                                              # Browse only this session's logs
 
-  dirsesh-extras bookmark <command> [args...]                           # Bookmark directories, one printable character each
+  dirsesh-extras bookmark <command> [args...]                            # Bookmark directories, one printable character each
     set <char> [path]                                                    # Bookmark a directory (path defaults to the current directory)
     remove <char>                                                        # Remove a bookmark
     get <char>                                                           # Print the directory a bookmark points at
@@ -87,7 +87,7 @@ bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"dirsesh-extra
 bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh-extras bookmark remove '%%%'\""
 
 bind-key \; run-shell -b "dirsesh-extras last-session"
-bind-key s popup -h 35% -w 40% -E "dirsesh-extras session-switcher"
+bind-key s popup -h 35% -w 40% -E "dirsesh-extras switch-session"
 bind-key T popup -h 35% -w 40% -E "dirsesh at $(mktemp -d)"
 ```
 

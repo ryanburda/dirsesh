@@ -8,7 +8,7 @@ Usage:
   dirsesh-extras                                                         # Show help message
   dirsesh-extras <command> -help                                         # Show what one command does, in detail
 
-  dirsesh-extras session-switcher [session]                              # Switch to another running session
+  dirsesh-extras switch-session [session]                                # Switch to another running session
     session                                                              # Switch straight to this one instead of picking
   dirsesh-extras last-session                                            # Switch back to the session you came from
   dirsesh-extras kill-session [session]                                  # Kill a running session
@@ -150,8 +150,8 @@ case "$command" in
   pick-worktree)
     run_extra pick/worktree "$@"
     ;;
-  session-switcher)
-    run_extra session-switcher "$@"
+  switch-session)
+    run_extra switch-session "$@"
     ;;
   last-session)
     run_extra last-session "$@"

@@ -21,7 +21,7 @@ _dirsesh_extras_commands() {
         'pick-repo:Print a git repository under $HOME'
         'pick-repo-brief:Print a git repository under $HOME that has changes'
         'pick-worktree:Print a worktree of the current repository'
-        'session-switcher:Switch to another running session'
+        'switch-session:Switch to another running session'
         'last-session:Switch back to the session you came from'
         'kill-session:Kill a running session'
         'logs:Browse the logs a dirsesh configuration wrote'
@@ -86,7 +86,7 @@ _dirsesh_extras() {
     # add to whatever the helper above them offered instead of replacing it.
     # `--` because compadd would read a leading `-` as an option of its own.
     case "$line[1]" in
-        session-switcher | kill-session)
+        switch-session | kill-session)
             if (( CURRENT == 2 )); then
                 _dirsesh_extras_sessions
                 compadd -- -help

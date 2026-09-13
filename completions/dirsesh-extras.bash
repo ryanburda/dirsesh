@@ -27,7 +27,7 @@ _dirsesh_extras_completions() {
     cmd="${COMP_WORDS[1]}"
 
     subcmds="pick-dir pick-repo pick-repo-brief pick-worktree"
-    subcmds="$subcmds session-switcher last-session kill-session logs bookmark help"
+    subcmds="$subcmds switch-session last-session kill-session logs bookmark help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -38,7 +38,7 @@ _dirsesh_extras_completions() {
     # Completing an argument to a subcommand. Every subcommand takes -help in
     # first position, so it is offered alongside whatever else fits there.
     case "$cmd" in
-        session-switcher | kill-session)
+        switch-session | kill-session)
             # The one optional argument is a running session.
             [ "$COMP_CWORD" -eq 2 ] || return 0
             COMPREPLY=($(compgen -W "-help $(_dirsesh_extras_sessions)" -- "$cur"))
