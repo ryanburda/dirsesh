@@ -182,7 +182,7 @@ alias b='dirsesh at "$(dirsesh bookmark-pick)"'
 > - **bash:** set `BASH_ENV` to a file that configures your PATH, or use `/etc/environment`.
 >
 > Fallback: use the full path in the bindings, e.g.
-> `run-shell -b "~/.local/share/tmux-dirsesh/dirsesh bookmark-set '%%%'"`.
+> `run-shell -b "~/.local/share/dirsesh/dirsesh bookmark-set '%%%'"`.
 
 ## Storage
 

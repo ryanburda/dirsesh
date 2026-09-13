@@ -1,17 +1,23 @@
 #!/bin/sh
-# Install tmux-dirsesh: symlink `dirsesh` into a directory on PATH.
+# Install dirsesh: symlink `dirsesh` into a directory on PATH.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ryanburda/dirsesh/main/install.sh | sh
 #
 # Environment overrides:
-#   DIRSESH_HOME  where the repo is cloned  (default: ~/.local/share/tmux-dirsesh)
+#   DIRSESH_HOME  where the repo is cloned  (default: ~/.local/share/dirsesh)
 #   BIN_DIR       where symlinks are placed (default: ~/.local/bin)
 
 set -eu
 
-REPO_URL=https://github.com/ryanburda/tmux-dirsesh.git
-DIRSESH_HOME=${DIRSESH_HOME:-"${XDG_DATA_HOME:-$HOME/.local/share}/tmux-dirsesh"}
+REPO_URL=https://github.com/ryanburda/dirsesh.git
+DEFAULT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/dirsesh"
+DIRSESH_HOME=${DIRSESH_HOME:-"$DEFAULT_HOME"}
 BIN_DIR=${BIN_DIR:-"$HOME/.local/bin"}
+
+# The project was named tmux-dirsesh until it was renamed to dirsesh, and the
+# default checkout location moved with it.
+LEGACY_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/tmux-dirsesh"
+LEGACY_REPO_URL=https://github.com/ryanburda/tmux-dirsesh.git
 
 die() {
     echo "install.sh: $*" >&2
@@ -20,6 +26,24 @@ die() {
 
 command -v git > /dev/null 2>&1 || die "git is required but was not found on PATH"
 command -v tmux > /dev/null 2>&1 || die "tmux is required but was not found on PATH"
+
+# A checkout made before the rename is still a good checkout: move it to the
+# new default rather than let a second clone land beside it and orphan the
+# first. Only when the default is where we are headed -- a DIRSESH_HOME given
+# on the command line is an answer, not a guess to be corrected.
+if [ "$DIRSESH_HOME" = "$DEFAULT_HOME" ] && [ ! -e "$DIRSESH_HOME" ] \
+    && [ -d "$LEGACY_HOME/.git" ]; then
+    echo "Moving $LEGACY_HOME to $DIRSESH_HOME (tmux-dirsesh was renamed to dirsesh)"
+    mkdir -p "$(dirname "$DIRSESH_HOME")"
+    mv "$LEGACY_HOME" "$DIRSESH_HOME"
+
+    # GitHub redirects the old URL to the new one, so this is tidiness rather
+    # than repair -- and it is skipped for a remote pointing anywhere else,
+    # which is someone's fork and none of this script's business.
+    if [ "$(git -C "$DIRSESH_HOME" remote get-url origin 2>/dev/null)" = "$LEGACY_REPO_URL" ]; then
+        git -C "$DIRSESH_HOME" remote set-url origin "$REPO_URL"
+    fi
+fi
 
 # Fetch (or update) the source checkout that the symlink points at.
 if [ -d "$DIRSESH_HOME/.git" ]; then

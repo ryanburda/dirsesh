@@ -1,4 +1,4 @@
-# tmux-dirsesh
+# dirsesh
 
 _One configurable tmux session per directory_
 
@@ -151,18 +151,18 @@ The pickers print a path on stdout, so they compose with `dirsesh at`:
   dirsesh at "$(dirsesh pick-repo)"
   dirsesh at "$(dirsesh bookmark-get m)"
 
-See https://github.com/ryanburda/tmux-dirsesh for more documentation
+See https://github.com/ryanburda/dirsesh for more documentation
 ```
 
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ryanburda/dirsesh/main/install.sh | sh
 ```
 
 The install script:
-- clones the repository to `${XDG_DATA_HOME:-~/.local/share}/tmux-dirsesh`
+- clones the repository to `${XDG_DATA_HOME:-~/.local/share}/dirsesh`
 - symlinks `dirsesh` into `~/.local/bin`.
 
 Re-run it any time to update.
@@ -174,7 +174,7 @@ Two environment variables change where things land: `DIRSESH_HOME` (where the re
 `BIN_DIR` (where the symlinks go).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/ryanburda/dirsesh/main/install.sh \
   | DIRSESH_HOME=~/src/dirsesh BIN_DIR=~/bin sh
 ```
 
@@ -183,8 +183,8 @@ subcommand runs a script under `src/`, which `dirsesh` finds relative to itself 
 symlink resolved, so that one link is the whole install.
 
 ```bash
-git clone https://github.com/ryanburda/tmux-dirsesh.git ~/git/tmux-dirsesh
-ln -s ~/git/tmux-dirsesh/dirsesh ~/.local/bin/dirsesh
+git clone https://github.com/ryanburda/dirsesh.git ~/git/dirsesh
+ln -s ~/git/dirsesh/dirsesh ~/.local/bin/dirsesh
 ```
 </details>
 
@@ -197,14 +197,14 @@ cloned elsewhere.
 **Bash**: add to `~/.bashrc`:
 
 ```bash
-source ~/.local/share/tmux-dirsesh/completions/dirsesh.bash
+source ~/.local/share/dirsesh/completions/dirsesh.bash
 ```
 
 **Zsh**: `compinit` finds a completion by file name, so link it in as `_dirsesh`:
 
 ```bash
 mkdir -p ~/.zsh/completions
-ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.zsh ~/.zsh/completions/_dirsesh
+ln -s ~/.local/share/dirsesh/completions/dirsesh.zsh ~/.zsh/completions/_dirsesh
 ```
 
 and add to `~/.zshrc`, before `compinit` runs:

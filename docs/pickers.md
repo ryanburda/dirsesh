@@ -103,9 +103,9 @@ working tree and is current either way.
 The worktrees of the repository you are standing in, branch beside path:
 
 ```console
-path                     branch
-~/code/tmux-dirsesh/base main
-~/code/tmux-dirsesh/fix  bugfix/hook-order
+path                branch
+~/code/dirsesh/base main
+~/code/dirsesh/fix  bugfix/hook-order
 ```
 
 Must be run from inside a git repository (or another worktree). A bare repository is skipped —

@@ -7,9 +7,9 @@
 #
 # Must be run from inside a git repository (or another worktree).
 #
-#   path                     branch
-#   ~/code/tmux-dirsesh/base main
-#   ~/code/tmux-dirsesh/fix  bugfix/hook-order
+#   path                branch
+#   ~/code/dirsesh/base main
+#   ~/code/dirsesh/fix  bugfix/hook-order
 #
 # A bare repository is skipped -- there is no working tree to sit in -- and the
 # worktrees checked out beside it are listed on their own. A detached HEAD
