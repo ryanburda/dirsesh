@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# kill-session: kill a running tmux session, chosen with fzf.
+# session-kill: kill a running tmux session, chosen with fzf.
 #
-# Usage: dirsesh-extras kill-session [session]
+# Usage: dirsesh-extras session-kill [session]
 #   session  Kill this session instead of showing the picker.
 
 notify() {

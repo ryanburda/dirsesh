@@ -8,12 +8,12 @@ Usage:
   dirsesh-extras                                                         # Show help message
   dirsesh-extras <command> -help                                         # Show what one command does, in detail
 
-  dirsesh-extras switch-session [session]                                # Switch to another running session
+  dirsesh-extras session-switch [session]                                # Switch to another running session
     session                                                              # Switch straight to this one instead of picking
-  dirsesh-extras last-session                                            # Switch back to the session you came from
-  dirsesh-extras kill-session [session]                                  # Kill a running session
+  dirsesh-extras session-last                                            # Switch back to the session you came from
+  dirsesh-extras session-kill [session]                                  # Kill a running session
     session                                                              # Kill this one instead of picking
-  dirsesh-extras logs [session]                                          # Browse the logs a dirsesh configuration wrote
+  dirsesh-extras session-logs [session]                                  # Browse the logs a dirsesh configuration wrote
     session                                                              # Browse only this session's logs
 
   dirsesh-extras bookmark <command> [args...]                            # Bookmark directories, one printable character each
@@ -150,17 +150,17 @@ case "$command" in
   pick-worktree)
     run_extra pick/worktree "$@"
     ;;
-  switch-session)
-    run_extra switch-session "$@"
+  session-switch)
+    run_extra session-switch "$@"
     ;;
-  last-session)
-    run_extra last-session "$@"
+  session-last)
+    run_extra session-last "$@"
     ;;
-  kill-session)
-    run_extra kill-session "$@"
+  session-kill)
+    run_extra session-kill "$@"
     ;;
-  logs)
-    run_extra logs "$@"
+  session-logs)
+    run_extra session-logs "$@"
     ;;
   bookmark)
     run_extra bookmark "$@"

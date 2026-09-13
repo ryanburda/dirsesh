@@ -29,12 +29,12 @@ Usage:
   dirsesh-extras                                                         # Show help message
   dirsesh-extras <command> -help                                         # Show what one command does, in detail
 
-  dirsesh-extras switch-session [session]                                # Switch to another running session
+  dirsesh-extras session-switch [session]                                # Switch to another running session
     session                                                              # Switch straight to this one instead of picking
-  dirsesh-extras last-session                                            # Switch back to the session you came from
-  dirsesh-extras kill-session [session]                                  # Kill a running session
+  dirsesh-extras session-last                                            # Switch back to the session you came from
+  dirsesh-extras session-kill [session]                                  # Kill a running session
     session                                                              # Kill this one instead of picking
-  dirsesh-extras logs [session]                                          # Browse the logs a dirsesh configuration wrote
+  dirsesh-extras session-logs [session]                                  # Browse the logs a dirsesh configuration wrote
     session                                                              # Browse only this session's logs
 
   dirsesh-extras bookmark <command> [args...]                            # Bookmark directories, one printable character each
@@ -62,7 +62,7 @@ and anything worth knowing before you bind it to a key:
 
 ```bash
 dirsesh-extras pick-repo-brief -help
-dirsesh-extras logs -help
+dirsesh-extras session-logs -help
 ```
 
 That is where the per-command detail lives, so it cannot drift from the scripts the way a second
@@ -86,8 +86,8 @@ bind-key b popup -E 'dirsesh at "$(dirsesh-extras bookmark pick)"'
 bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"dirsesh-extras bookmark set '%%%'\""
 bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh-extras bookmark remove '%%%'\""
 
-bind-key \; run-shell -b "dirsesh-extras last-session"
-bind-key s popup -h 35% -w 40% -E "dirsesh-extras switch-session"
+bind-key \; run-shell -b "dirsesh-extras session-last"
+bind-key s popup -h 35% -w 40% -E "dirsesh-extras session-switch"
 bind-key T popup -h 35% -w 40% -E "dirsesh at $(mktemp -d)"
 ```
 

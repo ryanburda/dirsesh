@@ -10,20 +10,20 @@ complete -c dirsesh-extras -n '__fish_use_subcommand' -a pick-dir -d 'Print a di
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a pick-repo -d 'Print a git repository under $HOME'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a pick-repo-brief -d 'Print a git repository under $HOME that has changes'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a pick-worktree -d 'Print a worktree of the current repository'
-complete -c dirsesh-extras -n '__fish_use_subcommand' -a switch-session -d 'Switch to another running session'
-complete -c dirsesh-extras -n '__fish_use_subcommand' -a last-session -d 'Switch back to the session you came from'
-complete -c dirsesh-extras -n '__fish_use_subcommand' -a kill-session -d 'Kill a running session'
-complete -c dirsesh-extras -n '__fish_use_subcommand' -a logs -d 'Browse the logs a dirsesh configuration wrote'
+complete -c dirsesh-extras -n '__fish_use_subcommand' -a session-switch -d 'Switch to another running session'
+complete -c dirsesh-extras -n '__fish_use_subcommand' -a session-last -d 'Switch back to the session you came from'
+complete -c dirsesh-extras -n '__fish_use_subcommand' -a session-kill -d 'Kill a running session'
+complete -c dirsesh-extras -n '__fish_use_subcommand' -a session-logs -d 'Browse the logs a dirsesh configuration wrote'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a bookmark -d 'Bookmark directories, one printable character each'
 complete -c dirsesh-extras -n '__fish_use_subcommand' -a help -d 'Show help message'
 
-# Subcommand arguments. The pickers and last-session take none, so they are
+# Subcommand arguments. The pickers and session-last take none, so they are
 # absent here and keep the disabled file completion above.
-complete -c dirsesh-extras -n '__fish_seen_subcommand_from switch-session kill-session' \
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from session-switch session-kill' \
     -xa '(tmux list-sessions -F "#{session_name}" 2>/dev/null)' -d 'Session'
 # The sessions dirsesh has written logs for, which are not always sessions that
 # are still running.
-complete -c dirsesh-extras -n '__fish_seen_subcommand_from logs' \
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from session-logs' \
     -xa '(find (set -q XDG_STATE_HOME; and echo $XDG_STATE_HOME; or echo $HOME/.local/state)/dirsesh/logs -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort)' -d 'Session'
 
 # bookmark is the one subcommand with subcommands of its own: offer them while
@@ -45,5 +45,5 @@ complete -c dirsesh-extras -n '__fish_seen_subcommand_from bookmark; and __fish_
 complete -c dirsesh-extras -n '__fish_seen_subcommand_from bookmark; and __fish_seen_subcommand_from status' \
     -xa '-s --style -c --current-style'
 # Every subcommand documents itself with -help in first position.
-complete -c dirsesh-extras -n '__fish_seen_subcommand_from pick-dir pick-repo pick-repo-brief pick-worktree switch-session last-session kill-session logs bookmark' \
+complete -c dirsesh-extras -n '__fish_seen_subcommand_from pick-dir pick-repo pick-repo-brief pick-worktree session-switch session-last session-kill session-logs bookmark' \
     -xa '-help' -d 'Show what this command does, in detail'
