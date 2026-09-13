@@ -13,7 +13,7 @@ if [ -z "$TMUX" ]; then
   exit 1
 fi
 
-last=$(tmux display-message -p '#{client_last-session}')
+last=$(tmux display-message -p '#{client_last_session}')
 current=$(tmux display-message -p '#{client_session}')
 count=$(tmux display-message -p '#{server_sessions}')
 
