@@ -32,14 +32,15 @@ dirsesh session-kill [session]          # Kill a running session
 dirsesh session-logs [session]          # Browse the logs a dirsesh configuration wrote
   session                               # Browse only this session's logs
 
-dirsesh bookmark <command> [args...]    # Bookmark directories, one printable character each
-  set <char> [path]                     # Bookmark a directory (path defaults to the current directory)
-  remove <char>                         # Remove a bookmark
-  get <char>                            # Print the directory a bookmark points at
-  pick                                  # Choose a bookmark with fzf and print its directory
-  list                                  # Every bookmark as "char<TAB>directory"
-  status [path]                         # Bookmarks with a tmux session open at them, for a status line
-  status-init                           # Install the tmux hooks `status` needs (put this in tmux.conf)
+dirsesh bookmark-set <char> [path]      # Bookmark a directory, one printable character each
+  char                                  # The character to bookmark at
+  path                                  # The directory to bookmark (defaults to the current directory)
+dirsesh bookmark-remove <char>          # Remove a bookmark
+dirsesh bookmark-get <char>             # Print the directory a bookmark points at
+dirsesh bookmark-pick                   # Choose a bookmark with fzf and print its directory
+dirsesh bookmark-list                   # Every bookmark as "char<TAB>directory"
+dirsesh bookmark-status [path]          # Bookmarks with a tmux session open at them, for a status line
+dirsesh bookmark-status-init            # Install the tmux hooks `bookmark-status` needs (put this in tmux.conf)
 
 dirsesh pick-dir                        # Print a directory under $HOME
 dirsesh pick-repo [-brief] [-filter] [-fetch]
@@ -54,7 +55,7 @@ The pickers print a path on stdout, so they compose with `dirsesh at`:
 
 ```bash
 dirsesh at "$(dirsesh pick-repo)"
-dirsesh at "$(dirsesh bookmark get m)"
+dirsesh at "$(dirsesh bookmark-get m)"
 ```
 
 Each subcommand documents itself. `-help` prints what it lists, how it behaves at the edges,
@@ -86,9 +87,9 @@ Without `-fetch`, `↑` and `↓` are counted against the upstream ref as it sta
 same counts `git status` reports, and stale in the same way. Everything else is read from the
 working tree and is current either way.
 
-`bookmark` is the exception: it has subcommands of its own, a tmux status line and the
-keybindings that go with them, which is more than a header comment holds. See
-[Bookmarks](bookmark.md).
+The `bookmark-*` commands are the exception: they share one `-help`, and between them they
+have a tmux status line and the keybindings that go with it, which is more than a header
+comment holds. See [Bookmarks](bookmark.md).
 
 ## Binding them
 
@@ -100,9 +101,9 @@ bind-key r popup -E 'dirsesh at "$(dirsesh pick-repo)"'
 bind-key R popup -E 'dirsesh at "$(dirsesh pick-repo -brief -filter -fetch)"'
 bind-key w popup -E 'dirsesh at "$(dirsesh pick-worktree)"'
 
-bind-key b popup -E 'dirsesh at "$(dirsesh bookmark pick)"'
-bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"dirsesh bookmark set '%%%'\""
-bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh bookmark remove '%%%'\""
+bind-key b popup -E 'dirsesh at "$(dirsesh bookmark-pick)"'
+bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"dirsesh bookmark-set '%%%'\""
+bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh bookmark-remove '%%%'\""
 
 bind-key \; run-shell -b "dirsesh session-last"
 bind-key s popup -h 35% -w 40% -E "dirsesh session-switch"
@@ -119,7 +120,7 @@ alias d='dirsesh at "$(dirsesh pick-dir)"'
 alias r='dirsesh at "$(dirsesh pick-repo)"'
 alias R='dirsesh at "$(dirsesh pick-repo -brief -filter -fetch)"'
 alias w='dirsesh at "$(dirsesh pick-worktree)"'
-alias b='dirsesh at "$(dirsesh bookmark pick)"'
+alias b='dirsesh at "$(dirsesh bookmark-pick)"'
 ```
 
 This ensures your muscle memory is similar no matter if you are in or out of tmux.

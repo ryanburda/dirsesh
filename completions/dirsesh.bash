@@ -17,7 +17,7 @@ _dirsesh_log_sessions() {
 
 _dirsesh_bookmark_chars() {
     # Every bookmark as "char<TAB>directory"; the character is the first field.
-    dirsesh bookmark list 2>/dev/null | cut -f1
+    dirsesh bookmark-list 2>/dev/null | cut -f1
 }
 
 _dirsesh_completions() {
@@ -27,7 +27,9 @@ _dirsesh_completions() {
     cmd="${COMP_WORDS[1]}"
 
     subcmds="at match init"
-    subcmds="$subcmds session-switch session-last session-kill session-logs bookmark"
+    subcmds="$subcmds session-switch session-last session-kill session-logs"
+    subcmds="$subcmds bookmark-set bookmark-remove bookmark-get bookmark-pick"
+    subcmds="$subcmds bookmark-list bookmark-status bookmark-status-init"
     subcmds="$subcmds pick-dir pick-repo pick-worktree help"
 
     # Completing the subcommand itself
@@ -60,36 +62,32 @@ _dirsesh_completions() {
             COMPREPLY=($(compgen -W "-help $(_dirsesh_log_sessions)" -- "$cur"))
             return 0
             ;;
-        bookmark)
-            # Its own subcommand first, then whatever that one takes: a
-            # bookmarked character for `remove` and `get`, the character to
-            # bookmark at and then a directory for `set`.
+        bookmark-remove | bookmark-get)
+            # The one argument is a character something is bookmarked at.
+            [ "$COMP_CWORD" -eq 2 ] || return 0
+            COMPREPLY=($(compgen -W "-help $(_dirsesh_bookmark_chars)" -- "$cur"))
+            return 0
+            ;;
+        bookmark-set)
+            # The character comes first and is the user's to pick, so only
+            # -help is offered there; the directory after it is the one being
+            # bookmarked.
             if [ "$COMP_CWORD" -eq 2 ]; then
-                COMPREPLY=($(compgen -W "-help set remove get pick list status status-init" -- "$cur"))
-                return 0
+                COMPREPLY=($(compgen -W "-help" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -d -- "$cur"))
             fi
-            case "${COMP_WORDS[2]}" in
-                remove | get)
-                    [ "$COMP_CWORD" -eq 3 ] || return 0
-                    COMPREPLY=($(compgen -W "$(_dirsesh_bookmark_chars)" -- "$cur"))
-                    ;;
-                set)
-                    # The character comes first and is the user's to pick; the
-                    # directory after it is the one being bookmarked.
-                    [ "$COMP_CWORD" -gt 3 ] || return 0
-                    COMPREPLY=($(compgen -d -- "$cur"))
-                    ;;
-                status)
-                    COMPREPLY=($(compgen -W "-s --style -c --current-style" -- "$cur"))
-                    ;;
-            esac
+            return 0
+            ;;
+        bookmark-status)
+            COMPREPLY=($(compgen -W "-help -s --style -c --current-style" -- "$cur"))
             return 0
             ;;
         pick-repo)
             COMPREPLY=($(compgen -W "-help -brief -filter -fetch" -- "$cur"))
             return 0
             ;;
-        init | pick-* | session-last)
+        init | pick-* | session-last | bookmark-pick | bookmark-list | bookmark-status-init)
             # No arguments of their own; -help is all there is to offer.
             [ "$COMP_CWORD" -eq 2 ] || return 0
             COMPREPLY=($(compgen -W "-help" -- "$cur"))

@@ -2,16 +2,20 @@
 #
 # bookmark: one printable character, one directory, the way vim marks do.
 #
-# Usage: dirsesh bookmark <command> [args...]
-#   set <char> [path]     Bookmark a directory (path defaults to the current directory)
-#   remove <char>         Remove a bookmark
-#   get <char>            Print the directory a bookmark points at
-#   pick                  Choose a bookmark with fzf and print its directory (ctrl-x removes)
-#   list                  Every bookmark as "char<TAB>directory"
-#   status [path]         Bookmarks with a tmux session open at them, for a status line
-#     -s, --style           tmux style for the other sessions' characters (default: dim)
-#     -c, --current-style   tmux style for the current session's character (default: fg=yellow,bold)
-#   status-init           Install the tmux hooks `status` needs (`dirsesh init` does this too)
+# Usage:
+#   dirsesh bookmark-set <char> [path]   Bookmark a directory (path defaults to the current directory)
+#   dirsesh bookmark-remove <char>       Remove a bookmark
+#   dirsesh bookmark-get <char>          Print the directory a bookmark points at
+#   dirsesh bookmark-pick                Choose a bookmark with fzf and print its directory (ctrl-x removes)
+#   dirsesh bookmark-list                Every bookmark as "char<TAB>directory"
+#   dirsesh bookmark-status [path]       Bookmarks with a tmux session open at them, for a status line
+#     -s, --style                          tmux style for the other sessions' characters (default: dim)
+#     -c, --current-style                  tmux style for the current session's character (default: fg=yellow,bold)
+#   dirsesh bookmark-status-init         Install the tmux hooks `bookmark-status` needs (`dirsesh init` too)
+#
+# Every verb here shares one file and one -help: they share the bookmark store,
+# the character a bookmark is keyed by and the status line refresh, so there is
+# one place any of it is written down.
 #
 # A bookmark is one printable character pointing at one directory. Setting a
 # character that is already set replaces it, no confirmation, the way `m` does
@@ -20,11 +24,11 @@
 # next to the fuzzy pickers -- it is the case where you already know exactly
 # where you are going.
 #
-# `get` and `pick` print a directory on stdout and nothing else, so they
-# compose with dirsesh exactly as the pickers do:
+# `bookmark-get` and `bookmark-pick` print a directory on stdout and nothing
+# else, so they compose with dirsesh exactly as the pickers do:
 #
-#   dirsesh at "$(dirsesh bookmark get m)"
-#   dirsesh at "$(dirsesh bookmark pick)"
+#   dirsesh at "$(dirsesh bookmark-get m)"
+#   dirsesh at "$(dirsesh bookmark-pick)"
 #
 # Each bookmark is a file named after its character, holding the directory it
 # points at, in ${XDG_STATE_HOME:-~/.local/state}/dirsesh/bookmarks -- or under
@@ -36,13 +40,16 @@
 BOOKMARKS_DIR="${DIRSESH_BOOKMARKS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/bookmarks}"
 mkdir -p "$BOOKMARKS_DIR"
 
-# The internal verb the tmux hooks call back on. Also the string `status-init`
-# greps for to recognise a hook it installed before.
+# The internal verbs dirsesh reaches this script by for the two things that
+# are not typed: the rows `bookmark-pick`'s reload binding rebuilds, and the
+# refresh the tmux hooks call back on. HOOK_REFRESH is also the string
+# `bookmark-status-init` greps for to recognise a hook it installed before.
+HOOK_ENTRIES=_bookmark-entries
 HOOK_REFRESH=_bookmark-refresh-status
 
 usage() {
   # This script's own header comment, which is where its usage is written down
-  # -- the same text `dirsesh bookmark -help` prints, read from the
+  # -- the same text `dirsesh bookmark-<command> -help` prints, read from the
   # same place so the two cannot drift.
   sed -n '2,${
     /^#/!q
@@ -68,10 +75,9 @@ notify() {
 }
 
 dirsesh_path() {
-  # Echo the absolute path to re-run `dirsesh bookmark` by, or nothing
-  # with a non-zero status. Both callers run it later in an environment of
-  # their own -- fzf in a shell, tmux in a hook -- and neither PATH need hold
-  # it.
+  # Echo the absolute path to re-run `dirsesh` by, or nothing with a non-zero
+  # status. Both callers run it later in an environment of their own -- fzf in
+  # a shell, tmux in a hook -- and neither PATH need hold it.
   #
   # dirsesh runs this script by its path in the checkout, symlinks already
   # resolved, so its own file is the parent of the src/ directory this one
@@ -192,7 +198,7 @@ refresh_status() {
 install_status_hook() {
   # Point one global tmux hook at the refresh verb. Appended, so anyone
   # else's hooks on it survive -- `dirsesh init`'s session-closed hook among
-  # them; any hook a previous `bookmark status-init` left on it is dropped
+  # them; any hook a previous `bookmark-status-init` left on it is dropped
   # first, so re-sourcing tmux.conf does not stack duplicates.
   #
   # Args:
@@ -208,7 +214,7 @@ install_status_hook() {
   done < <(tmux show-hooks -g 2>/dev/null \
     | sed -n "s/^$hook\\[\\([0-9]\\{1,\\}\\)\\].*$HOOK_REFRESH.*/\\1/p")
 
-  if ! tmux set-hook -ga "$hook" "run-shell -b \"'$self' bookmark $HOOK_REFRESH\""; then
+  if ! tmux set-hook -ga "$hook" "run-shell -b \"'$self' $HOOK_REFRESH\""; then
     notify "Error: could not set the tmux '$hook' hook"
     return 1
   fi
@@ -254,7 +260,7 @@ bookmark_set() {
   # command-prompt -1 and passes the answer in (see docs/bookmark.md), which
   # is the only way it was ever reached.
   if [ -z "$char" ]; then
-    notify "Error: 'bookmark set' needs a character to bookmark ${path/#"$HOME"/\~} at"
+    notify "Error: 'bookmark-set' needs a character to bookmark ${path/#"$HOME"/\~} at"
     exit 1
   fi
 
@@ -280,7 +286,7 @@ bookmark_remove() {
   local char="$1"
 
   if [ -z "$char" ]; then
-    notify "Error: 'bookmark remove' needs a character"
+    notify "Error: 'bookmark-remove' needs a character"
     exit 1
   fi
 
@@ -302,17 +308,17 @@ bookmark_get() {
   # Print the directory a bookmark points at. A picker in its own right: it
   # names a directory and nothing else, so
   #
-  #   dirsesh at "$(dirsesh bookmark get m)"
+  #   dirsesh at "$(dirsesh bookmark-get m)"
   #
   # goes straight to a session at whatever m bookmarks, skipping the fzf
-  # `pick` opens.
+  # `bookmark-pick` opens.
   #
   # Args:
   #   $1: char: the bookmark character to look up
   local char="$1"
 
   if [ -z "$char" ]; then
-    notify "Error: 'bookmark get' needs a character"
+    notify "Error: 'bookmark-get' needs a character"
     exit 1
   fi
 
@@ -331,7 +337,7 @@ bookmark_pick() {
   # Choose a bookmark with fzf and print its directory. Backing out prints
   # nothing and succeeds, the way any picker declines to answer.
   if ! command -v fzf > /dev/null 2>&1; then
-    notify "Error: 'bookmark pick' needs fzf on PATH"
+    notify "Error: 'bookmark-pick' needs fzf on PATH"
     exit 1
   fi
 
@@ -345,7 +351,8 @@ bookmark_pick() {
 
   # ctrl-x removes the bookmark under the cursor, then rebuilds the list from
   # disk. fzf hands a binding to a shell, so the path is quoted for one; fzf
-  # itself quotes {1}.
+  # itself quotes {1}. Both go back through dirsesh rather than this script,
+  # so the verbs they name are the ones anyone else would type.
   local self
   self=$(dirsesh_path) || self="$0"
   printf -v self '%q' "$self"
@@ -357,7 +364,7 @@ bookmark_pick() {
     --with-nth=3 \
     --prompt "Bookmark > " \
     --header $':: \e[33mctrl-x\e[0m to \e[31mremove\e[0m' \
-    --bind "ctrl-x:execute-silent($self bookmark remove {1})+reload($self bookmark _entries)")
+    --bind "ctrl-x:execute-silent($self bookmark-remove {1})+reload($self $HOOK_ENTRIES)")
 
   [ -n "$selected" ] || exit 0
 
@@ -396,12 +403,12 @@ bookmark_status() {
         shift 2
         ;;
       -*)
-        notify "Error: Unknown option '$1' for 'bookmark status'"
+        notify "Error: Unknown option '$1' for 'bookmark-status'"
         exit 1
         ;;
       *)
         if [ -n "$current_given" ]; then
-          notify "Error: Too many arguments for 'bookmark status'"
+          notify "Error: Too many arguments for 'bookmark-status'"
           exit 1
         fi
         current="$1"
@@ -454,11 +461,11 @@ status_init() {
   # needs nothing further. This is the way to install these hooks on their own,
   # without the session cleanup hook that comes with them:
   #
-  #   run-shell "dirsesh bookmark status-init"
+  #   run-shell "dirsesh bookmark-status-init"
   #
   # A status line is only redrawn every status-interval seconds, so a session
   # opened or killed elsewhere would otherwise take that long to show up in
-  # `bookmark status`. session-created and session-closed are the two moments
+  # `bookmark-status`. session-created and session-closed are the two moments
   # its answer changes without this program being involved; setting and
   # removing a bookmark refresh the line on their own.
   #
@@ -495,7 +502,7 @@ case "$command" in
     ;;
   pick)
     if [ $# -gt 0 ]; then
-      notify "Error: 'bookmark pick' takes no arguments"
+      notify "Error: 'bookmark-pick' takes no arguments"
       exit 1
     fi
     bookmark_pick
@@ -508,24 +515,26 @@ case "$command" in
     ;;
   status-init)
     if [ $# -gt 0 ]; then
-      notify "Error: 'bookmark status-init' takes no arguments"
+      notify "Error: 'bookmark-status-init' takes no arguments"
       exit 1
     fi
     status_init
     ;;
-  _entries)
+  "$HOOK_ENTRIES")
     # Internal: rebuilds the picker's rows for its reload binding.
     bookmark_entries
     ;;
   "$HOOK_REFRESH")
-    # Internal: invoked by the hooks `bookmark status-init` installs.
+    # Internal: invoked by the hooks `bookmark-status-init` installs.
     refresh_status
     ;;
   help | -help)
     usage
     ;;
   *)
-    notify "Error: Unknown command '$command' for 'dirsesh bookmark'"
+    # Only reachable by running this script directly: dirsesh names the verbs
+    # it passes on one by one, and answers anything else itself.
+    notify "Error: Unknown command 'dirsesh bookmark-$command'"
     usage
     exit 1
     ;;

@@ -24,7 +24,13 @@ _dirsesh_commands() {
         'session-last:Switch back to the session you came from'
         'session-kill:Kill a running session'
         'session-logs:Browse the logs a dirsesh configuration wrote'
-        'bookmark:Bookmark directories, one printable character each'
+        'bookmark-set:Bookmark a directory at a character'
+        'bookmark-remove:Remove a bookmark'
+        'bookmark-get:Print the directory a bookmark points at'
+        'bookmark-pick:Choose a bookmark with fzf and print its directory'
+        'bookmark-list:Every bookmark as "char<TAB>directory"'
+        'bookmark-status:Bookmarks with a tmux session open at them, for a status line'
+        'bookmark-status-init:Install the tmux hooks `bookmark-status` needs'
         'pick-dir:Print a directory under $HOME'
         'pick-repo:Print a git repository under $HOME'
         'pick-worktree:Print a worktree of the current repository'
@@ -49,25 +55,11 @@ _dirsesh_log_sessions() {
     _describe 'session' log_sessions
 }
 
-_dirsesh_bookmark_commands() {
-    local commands=(
-        'set:Bookmark a directory at a character'
-        'remove:Remove a bookmark'
-        'get:Print the directory a bookmark points at'
-        'pick:Choose a bookmark with fzf and print its directory'
-        'list:Every bookmark as "char<TAB>directory"'
-        'status:Bookmarks with a tmux session open at them, for a status line'
-        'status-init:Install the tmux hooks `status` needs'
-    )
-
-    _describe 'command' commands
-}
-
 _dirsesh_bookmark_chars() {
     # The picker's own rows: character, directory, then the column it
     # displays -- which makes a fine completion description.
     local -a bookmarks
-    bookmarks=(${(f)"$(dirsesh bookmark _entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 ":" d }')"})
+    bookmarks=(${(f)"$(dirsesh _bookmark-entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 ":" d }')"})
     _describe 'bookmark' bookmarks
 }
 
@@ -110,27 +102,24 @@ _dirsesh() {
                 compadd -- -help
             fi
             ;;
-        bookmark)
-            # Its own subcommand sits where the other commands' first argument
-            # does, so CURRENT is one further along for everything it takes.
+        bookmark-remove | bookmark-get)
             if (( CURRENT == 2 )); then
-                _dirsesh_bookmark_commands
+                _dirsesh_bookmark_chars
+                compadd -- -help
+            fi
+            ;;
+        bookmark-set)
+            # The character comes first and is the user's to pick; the
+            # directory after it is the one being bookmarked.
+            if (( CURRENT == 2 )); then
                 compadd -- -help
             else
-                case "$line[2]" in
-                    remove | get)
-                        (( CURRENT == 3 )) && _dirsesh_bookmark_chars
-                        ;;
-                    set)
-                        # The character comes first and is the user's to pick;
-                        # the directory after it is the one being bookmarked.
-                        (( CURRENT > 3 )) && _files -/
-                        ;;
-                    status)
-                        _values -s ' ' 'status options' '-s' '--style' '-c' '--current-style'
-                        ;;
-                esac
+                _files -/
             fi
+            ;;
+        bookmark-status)
+            _values -s ' ' 'bookmark-status options' '-s' '--style' '-c' '--current-style'
+            (( CURRENT == 2 )) && compadd -- -help
             ;;
         pick-repo)
             _values -s ' ' 'pick-repo options' \
@@ -139,7 +128,7 @@ _dirsesh() {
                 '-fetch[fetch first, so the ahead/behind counts are current]'
             (( CURRENT == 2 )) && compadd -- -help
             ;;
-        init | pick-* | session-last)
+        init | pick-* | session-last | bookmark-pick | bookmark-list | bookmark-status-init)
             (( CURRENT == 2 )) && compadd -- -help
             ;;
     esac

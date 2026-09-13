@@ -449,7 +449,7 @@ cleanup_hook_installed() {
 
 init_hook() {
   # Install the one tmux hook a configured session's teardown works through.
-  # `dirsesh init` reaches this, alongside the bookmark status line hooks, and
+  # `dirsesh init` reaches this, alongside the `bookmark-status` line hooks, and
   # is what goes in tmux.conf, where it runs once per server:
   #
   #   run-shell "dirsesh init"

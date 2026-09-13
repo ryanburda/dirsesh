@@ -416,7 +416,7 @@ Teardown is a tmux hook, installed once from `~/.tmux.conf`:
 run-shell "dirsesh init"
 ```
 
-(`dirsesh init` also installs the hooks that keep the [`bookmark status`](bookmark.md) line
+(`dirsesh init` also installs the hooks that keep the [`bookmark-status`](bookmark.md) line
 current. They have nothing to do with configurations; one `init` line in `tmux.conf` is simply
 all of dirsesh's setup.)
 

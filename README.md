@@ -75,7 +75,7 @@ run-shell "dirsesh init"
 ```
 
 That one line is the whole of dirsesh's tmux setup: it installs the `session-closed` hook
-teardown works through, and the hooks that keep [`bookmark status`](docs/bookmark.md) current.
+teardown works through, and the hooks that keep [`bookmark-status`](docs/bookmark.md) current.
 `dirsesh init -help` spells out what lands where.
 
 That last case is the one that matters, and it is why there is no session-killing command to
@@ -118,14 +118,15 @@ Usage:
   dirsesh session-logs [session]                 # Browse the logs a dirsesh configuration wrote
     session                                      # Browse only this session's logs
 
-  dirsesh bookmark <command> [args...]           # Bookmark directories, one printable character each
-    set <char> [path]                            # Bookmark a directory (path defaults to the current directory)
-    remove <char>                                # Remove a bookmark
-    get <char>                                   # Print the directory a bookmark points at
-    pick                                         # Choose a bookmark with fzf and print its directory
-    list                                         # Every bookmark as "char<TAB>directory"
-    status [path]                                # Bookmarks with a tmux session open at them, for a status line
-    status-init                                  # Install the tmux hooks `status` needs (`dirsesh init` does this too)
+  dirsesh bookmark-set <char> [path]             # Bookmark a directory, one printable character each
+    char                                         # The character to bookmark at
+    path                                         # The directory to bookmark (defaults to the current directory)
+  dirsesh bookmark-remove <char>                 # Remove a bookmark
+  dirsesh bookmark-get <char>                    # Print the directory a bookmark points at
+  dirsesh bookmark-pick                          # Choose a bookmark with fzf and print its directory
+  dirsesh bookmark-list                          # Every bookmark as "char<TAB>directory"
+  dirsesh bookmark-status [path]                 # Bookmarks with a tmux session open at them, for a status line
+  dirsesh bookmark-status-init                   # Install the tmux hooks `bookmark-status` needs (`dirsesh init` too)
 
   dirsesh pick-dir                               # Print a directory under $HOME
   dirsesh pick-repo [-brief] [-filter] [-fetch]  # Print a git repository under $HOME
@@ -137,7 +138,7 @@ Usage:
 The pickers print a path on stdout, so they compose with `dirsesh at`:
 
   dirsesh at "$(dirsesh pick-repo)"
-  dirsesh at "$(dirsesh bookmark get m)"
+  dirsesh at "$(dirsesh bookmark-get m)"
 
 See https://github.com/ryanburda/tmux-dirsesh for more documentation
 ```
