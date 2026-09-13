@@ -8,8 +8,13 @@
 # hidden directory, so it stays fast and does not descend into a dependency
 # that vendored its own repository. Repositories are found by their .git rather
 # than by asking each directory whether it is one, which is what makes linked
-# worktrees and bare-clone checkouts show up alongside ordinary clones: both
-# carry a .git *file* rather than a directory.
+# worktrees show up alongside ordinary clones: a worktree carries a .git *file*
+# rather than a directory.
+#
+# Only directories with a working tree are listed. A bare repository has none,
+# so `git clone --bare repo.git` never appears, and neither does the container
+# of a bare checkout -- the ~/code/project holding .bare and its worktrees. The
+# worktrees themselves are listed, and are what you want a session at.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
@@ -39,7 +44,20 @@ fi
 dirs=$(find "$HOME" -maxdepth 5 \( -name .git -o -name node_modules \) -prune -print -o -name '.*' -prune 2>/dev/null \
   | grep '/\.git$' \
   | sed 's#/\.git$##' \
-  | LC_ALL=C sort -u)
+  | LC_ALL=C sort -u \
+  | while IFS= read -r dir; do
+      # A bare repository has no working tree to open a session in, and the
+      # container of a `git clone --bare` layout carries a .git of its own --
+      # a file holding `gitdir: ./.bare`, or the bare repository sitting at
+      # .git itself -- so the walk finds it looking like any other repo. Only
+      # git can tell the two apart. The worktrees checked out beside it are
+      # found on their own, and are what you actually want to sit in.
+      #
+      # This drops a stray directory called .git that is no repository at all
+      # in the same breath: rev-parse refuses it just the same.
+      [ "$(git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || continue
+      printf '%s\n' "$dir"
+    done)
 
 if [ -z "$dirs" ]; then
   note "No git repositories found"
