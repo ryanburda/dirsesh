@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#
+# dir: prints a directory, chosen with fzf.
+
+selected=$(find "$HOME" -name ".*" -prune -o -type d -print | fzf --cycle --prompt "Directory > ")
+
+# Backing out is not a failure: say nothing and succeed.
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "$selected"

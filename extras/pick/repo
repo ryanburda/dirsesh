@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# repo: prints the directory of a git repository, chosen with fzf.
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path -- and a program
+  # run from a tmux popup loses its stderr when the popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+# Looks for the .git itself rather than asking each directory whether it has
+# one, because .git is not always a directory: a linked worktree, and a
+# checkout of a bare clone, both carry a .git *file* holding a gitdir: line.
+# Matching by name finds those the same way it finds an ordinary clone. The
+# first -prune stops find descending into a .git it has found; the second
+# skips hidden directories, and comes second so that .git is not one of them.
+dirs=$(find "$HOME/code" -name .git -prune -print -o -name ".*" -prune 2>/dev/null \
+  | while IFS= read -r gitpath; do
+      if [ -d "$gitpath" ]; then
+        # No HEAD: a stray directory that happens to be called .git, not a
+        # repository. Bare: a repository with no working tree to open a
+        # session in -- the worktrees checked out beside it are found on
+        # their own, and are what you actually want to sit in.
+        [ -e "$gitpath/HEAD" ] || continue
+        grep -q '^[[:space:]]*bare = true' "$gitpath/config" 2>/dev/null && continue
+      fi
+      printf '%s\n' "${gitpath%/.git}"
+    done | sort)
+
+if [ -z "$dirs" ]; then
+  note "No git repositories found"
+  exit 1
+fi
+
+selected=$(printf '%s\n' "$dirs" | fzf --cycle --prompt "Repo > ")
+
+# Backing out is not a failure: say nothing and succeed.
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "$selected"

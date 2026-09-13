@@ -1,0 +1,117 @@
+#!/bin/bash
+
+usage() {
+  cat <<'EOF'
+dirsesh-extras - Directory pickers to pair with `dirsesh at`
+
+Usage:
+  dirsesh-extras                     # Show help message
+
+  dirsesh-extras pick-dir            # Print a directory under $HOME
+  dirsesh-extras pick-repo           # Print a git repository under $HOME/code
+  dirsesh-extras pick-repo-brief     # Print a git repository under $HOME/code that has changes
+  dirsesh-extras pick-worktree       # Print a worktree of the current repository
+
+Each picker prints the chosen directory on stdout, so it composes with dirsesh:
+
+  dirsesh at "$(dirsesh-extras pick-repo)"
+
+See https://github.com/ryanburda/tmux-dirsesh for more documentation
+EOF
+}
+
+####################
+# helper functions #
+####################
+notify() {
+  # Show a message: tmux display-message inside tmux, stderr otherwise.
+  # stderr because the pickers are run inside a command substitution whose
+  # stdout is their return value -- and a program run from a tmux popup loses
+  # its stderr when the popup closes.
+  local msg="$1"
+  if [ -n "$TMUX" ]; then
+    tmux display-message "$msg"
+  else
+    echo "$msg" >&2
+  fi
+}
+
+self_dir() {
+  # Directory holding this program, with symlinks resolved. The pickers live
+  # beside it in the checkout, and install.sh links this program onto PATH,
+  # so the link has to be followed to find them.
+  local self="$0"
+  case "$self" in
+    */*) ;;
+    *) self=$(command -v -- "$self") || return 1 ;;
+  esac
+
+  # Hop link by link rather than trusting `readlink -f`, which BSD readlink
+  # (macOS) does not have.
+  while [ -L "$self" ]; do
+    local target=$(readlink "$self")
+    case "$target" in
+      /*) self="$target" ;;
+      *) self="$(dirname "$self")/$target" ;;
+    esac
+  done
+
+  (cd "$(dirname "$self")" && pwd -P)
+}
+
+run_picker() {
+  # Run the picker named $1, passing on any remaining arguments.
+  #
+  # Args:
+  #   $1: name: the file under extras/pick to run
+  local name="$1"
+  shift
+
+  local dir
+  if ! dir=$(self_dir); then
+    notify "Error: could not locate the directory pickers"
+    exit 1
+  fi
+
+  local picker="$dir/extras/pick/$name"
+  if [ ! -f "$picker" ]; then
+    notify "Error: missing picker '$picker'"
+    exit 1
+  fi
+
+  # `bash` rather than executing it directly, so a checkout whose files lost
+  # their execute bit still works.
+  bash "$picker" "$@"
+}
+
+# Parse arguments
+if [ $# -eq 0 ]; then
+  usage
+  exit 0
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  pick-dir)
+    run_picker dir "$@"
+    ;;
+  pick-repo)
+    run_picker repo "$@"
+    ;;
+  pick-repo-brief)
+    run_picker repo-brief "$@"
+    ;;
+  pick-worktree)
+    run_picker worktree "$@"
+    ;;
+  help)
+    usage
+    ;;
+  *)
+    notify "Error: Unknown command '$command'"
+    usage
+    exit 1
+    ;;
+esac
