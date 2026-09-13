@@ -74,6 +74,10 @@ invoked whether you kill the session explicitly or its last pane simply exits:
 run-shell "dirsesh init"
 ```
 
+That one line is the whole of dirsesh's tmux setup: it installs the `session-closed` hook
+teardown works through, and the hooks that keep [`bookmark status`](docs/bookmark.md) current.
+`dirsesh init -help` spells out what lands where.
+
 That last case is the one that matters, and it is why there is no session-killing command to
 parallel `dirsesh at`. A shell exiting closes the session without anything asking `dirsesh` to.
 Sessions killed outside of `dirsesh`'s control are still handled correctly.
@@ -95,6 +99,7 @@ dirsesh - One configurable tmux session per directory
 
 Usage:
   dirsesh                                        # Show help message
+  dirsesh <command> -help                        # Show what one command does, in detail
 
   dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
     path                                         # The directory to start the session at
@@ -103,22 +108,52 @@ Usage:
 
   dirsesh match [path]                           # Configurations claiming a path (defaults to the current directory)
 
-  dirsesh init                                   # Install the hook that cleans up configured sessions (put this in tmux.conf)
+  dirsesh init                                   # Install dirsesh's tmux hooks (put this in tmux.conf)
+
+  dirsesh session-switch [session]               # Switch to another running session
+    session                                      # Switch straight to this one instead of picking
+  dirsesh session-last                           # Switch back to the session you came from
+  dirsesh session-kill [session]                 # Kill a running session
+    session                                      # Kill this one instead of picking
+  dirsesh session-logs [session]                 # Browse the logs a dirsesh configuration wrote
+    session                                      # Browse only this session's logs
+
+  dirsesh bookmark <command> [args...]           # Bookmark directories, one printable character each
+    set <char> [path]                            # Bookmark a directory (path defaults to the current directory)
+    remove <char>                                # Remove a bookmark
+    get <char>                                   # Print the directory a bookmark points at
+    pick                                         # Choose a bookmark with fzf and print its directory
+    list                                         # Every bookmark as "char<TAB>directory"
+    status [path]                                # Bookmarks with a tmux session open at them, for a status line
+    status-init                                  # Install the tmux hooks `status` needs (`dirsesh init` does this too)
+
+  dirsesh pick-dir                               # Print a directory under $HOME
+  dirsesh pick-repo                              # Print a git repository under $HOME
+  dirsesh pick-repo-brief                        # Print a git repository under $HOME that has changes
+  dirsesh pick-worktree                          # Print a worktree of the current repository
+
+The pickers print a path on stdout, so they compose with `dirsesh at`:
+
+  dirsesh at "$(dirsesh pick-repo)"
+  dirsesh at "$(dirsesh bookmark get m)"
+
+See https://github.com/ryanburda/tmux-dirsesh for more documentation
 ```
 
 ## Extras
 
-`dirsesh` creates sessions. Switching between them and killing them are separate jobs that
+`dirsesh at` creates sessions. Switching between them and killing them are separate jobs that
 plenty of other tools already do well, so if you have one you like, keep using it.
 
-If you would rather `dirsesh` be your session manager anyway, `dirsesh-extras` is a second
-command holding the rest of it:
+If you would rather `dirsesh` be your session manager anyway, the rest of its subcommands are
+the other half:
 - the directory pickers that pair with `dirsesh at`
 - a session switcher/killer that uses fzf
 - a directory bookmarker, one printable character per directory
 - and other handy features
 
-See [Extras](docs/extras.md) and [Bookmarks](docs/bookmark.md).
+None of them is wired into `dirsesh at`: a picker prints a path and stops, and it is you who
+substitutes that path in. See [Extras](docs/extras.md) and [Bookmarks](docs/bookmark.md).
 
 ## Install
 
@@ -128,7 +163,7 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install
 
 The install script:
 - clones the repository to `${XDG_DATA_HOME:-~/.local/share}/tmux-dirsesh`
-- symlinks `dirsesh` and `dirsesh-extras` into `~/.local/bin`.
+- symlinks `dirsesh` into `~/.local/bin`.
 
 Re-run it any time to update.
 
@@ -143,12 +178,13 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install
   | DIRSESH_HOME=~/src/dirsesh BIN_DIR=~/bin sh
 ```
 
-Or manually: clone the repo, symlink both programs into a directory on your PATH.
+Or manually: clone the repo, symlink `dirsesh` into a directory on your PATH. Every
+subcommand runs a script under `src/`, which `dirsesh` finds relative to itself with the
+symlink resolved, so that one link is the whole install.
 
 ```bash
 git clone https://github.com/ryanburda/tmux-dirsesh.git ~/git/tmux-dirsesh
-ln -s ~/git/tmux-dirsesh/dirsesh        ~/.local/bin/dirsesh
-ln -s ~/git/tmux-dirsesh/dirsesh-extras ~/.local/bin/dirsesh-extras
+ln -s ~/git/tmux-dirsesh/dirsesh ~/.local/bin/dirsesh
 ```
 </details>
 
@@ -162,16 +198,13 @@ cloned elsewhere.
 
 ```bash
 source ~/.local/share/tmux-dirsesh/completions/dirsesh.bash
-source ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.bash
 ```
 
-**Zsh**: `compinit` finds a completion by file name, so link them in as `_dirsesh` and
-`_dirsesh-extras`:
+**Zsh**: `compinit` finds a completion by file name, so link it in as `_dirsesh`:
 
 ```bash
 mkdir -p ~/.zsh/completions
-ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.zsh        ~/.zsh/completions/_dirsesh
-ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.zsh ~/.zsh/completions/_dirsesh-extras
+ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.zsh ~/.zsh/completions/_dirsesh
 ```
 
 and add to `~/.zshrc`, before `compinit` runs:
@@ -185,7 +218,6 @@ autoload -Uz compinit && compinit
 
 ```bash
 ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.fish ~/.config/fish/completions/
-ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.fish ~/.config/fish/completions/
 ```
 </details>
 

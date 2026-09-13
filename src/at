@@ -1,0 +1,808 @@
+#!/bin/bash
+#
+# at: start or switch to the tmux session for a directory.
+#
+# Usage: dirsesh at <path> [-noconfig] [-name[=NAME]]
+#   path            The directory to start the session at
+#   -noconfig       Ignore any configuration claiming that path
+#   -name[=NAME]    Name the session; prompts for one if NAME is not given
+#
+# A session is identified by the directory it was started at, not by its name:
+# `dirsesh at` on a directory that already has a session returns to it, whatever
+# it has since been renamed to.
+#
+# This file also holds the two verbs that share that lookup and bookkeeping,
+# rather than splitting them off from the helpers they are written in terms of:
+#
+#   dirsesh match [path]   Configurations claiming a path (defaults to the current directory)
+#   dirsesh init           Install the session-closed hook that cleans up configured sessions
+#
+# A configuration is an executable program under
+# ${XDG_CONFIG_HOME:-~/.config}/dirsesh that claims a directory with `pattern`,
+# then names (`name`), builds (`start`) and tears down (`kill`) the session
+# there. See docs/configured-sessions.md.
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dirsesh"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh"
+LOG_DIR="$STATE_DIR/logs"
+RECORD_DIR="$STATE_DIR/sessions"
+mkdir -p "$CONFIG_DIR" "$LOG_DIR"
+
+# The internal verb the tmux hook calls back on. It is also the string
+# `dirsesh init` greps for to recognise a hook it installed before.
+HOOK_CLOSED=_session_closed
+
+####################
+# helper functions #
+####################
+notify() {
+  # Show a message: tmux display-message inside tmux, stderr otherwise.
+  # stderr because several callers run inside a command substitution whose stdout is their return value.
+  local msg="$1"
+  if [ -n "$TMUX" ]; then
+    tmux display-message "$msg"
+  else
+    echo "$msg" >&2
+  fi
+}
+
+switch_or_attach() {
+  # Switch to a session if inside tmux, attach otherwise.
+  local session="$1"
+  if [ -n "$TMUX" ]; then
+    tmux switch-client -t "=$session"
+  else
+    tmux attach-session -t "=$session"
+  fi
+}
+
+dirsesh_path() {
+  # Absolute path to the top-level dirsesh program. `dirsesh init` bakes it
+  # into the tmux hook: the server's PATH is whatever it inherited when it
+  # started, which need not hold the directory dirsesh was installed in.
+  #
+  # dirsesh runs this script by its path in the checkout, symlinks already
+  # resolved, so the program is the parent of the src/ directory this script
+  # lives in. That absolute path is preferred over the installed link: tmux's
+  # run-shell starts a non-interactive shell whose PATH need not be the one
+  # dirsesh was installed onto.
+  local self="$0" dir
+
+  case "$self" in
+    */*) ;;
+    *) self=$(command -v -- "$self" 2>/dev/null) || return 1 ;;
+  esac
+
+  if dir=$(cd "$(dirname "$self")/.." && pwd -P) && [ -f "$dir/dirsesh" ]; then
+    printf '%s/dirsesh\n' "$dir"
+    return 0
+  fi
+
+  command -v -- dirsesh 2>/dev/null
+}
+
+session_record() {
+  # Path of a session's cleanup record: the file whose existence says a
+  # configuration built this session and is owed its `kill` when it closes.
+  # It holds the directory the session was started at, which the hook cannot
+  # read off the session itself -- tmux has freed @dirsesh_path and the session
+  # environment by the time session-closed fires.
+  #
+  # Keyed by session id under the server's pid: ids restart at $0 with every
+  # tmux server, so an id alone would be read back by an unrelated session of
+  # a later one.
+  #
+  # Args:
+  #   $1: pid: the tmux server's pid, #{pid}
+  #   $2: id: the session id, #{session_id}, leading `$` and all
+  printf '%s/%s/%s\n' "$RECORD_DIR" "$1" "${2#\$}"
+}
+
+session_paths() {
+  # Emit "<session name>\t<path>" for every running session. The path is the
+  # @dirsesh_path recorded at creation; #{session_path} is the fallback for
+  # sessions dirsesh did not create (it drifts as the first pane cds around,
+  # which is why @dirsesh_path exists).
+  tmux list-sessions -F $'#{session_name}\t#{@dirsesh_path}\t#{session_path}' 2>/dev/null \
+    | while IFS=$'\t' read -r name recorded fallback; do
+        printf '%s\t%s\n' "$name" "${recorded:-$fallback}"
+      done
+}
+
+session_for_path() {
+  # Echo the running session started at $1, or nothing with a non-zero status.
+  # Compared in the shell: tmux's filter parser reads `,` and `}` in a path.
+  local want="$1" name path
+  while IFS=$'\t' read -r name path; do
+    [ "$path" = "$want" ] || continue
+    printf '%s\n' "$name"
+    return 0
+  done < <(session_paths)
+  return 1
+}
+
+path_for_session() {
+  # Echo the path the session named $1 was started at, or nothing with a
+  # non-zero status.
+  local want="$1" name path
+  while IFS=$'\t' read -r name path; do
+    [ "$name" = "$want" ] || continue
+    printf '%s\n' "$path"
+    return 0
+  done < <(session_paths)
+  return 1
+}
+
+sanitize_session_name() {
+  # Replace every character outside [A-Za-z0-9_-/] with _. `/` survives for
+  # repo/worktree names; `.` and `:` must not, being tmux target separators.
+  # Takes a name, not a path: callers take the basename themselves.
+  printf '%s' "$1" | tr -c 'a-zA-Z0-9_/-' '_'
+}
+
+client_size() {
+  # Print "WIDTH HEIGHT" for the client that will attach, or nothing. tmux
+  # creates detached sessions at 80x24, so percentage splits made before the
+  # client attaches drift once the real size arrives; sizing up front avoids
+  # that.
+  local width height
+
+  width=$(tmux display-message -p '#{client_width}' 2>/dev/null)
+  height=$(tmux display-message -p '#{client_height}' 2>/dev/null)
+
+  # Outside tmux, fall back to the terminal dirsesh was invoked from.
+  if [ -z "$width" ] || [ -z "$height" ]; then
+    read -r height width < <({ stty size < /dev/tty; } 2>/dev/null)
+  fi
+
+  case "$width$height" in
+    *[!0-9]* | '') return 1 ;;
+  esac
+
+  # A pty with no size set answers `0 0`, which tmux refuses.
+  [ "$width" -gt 0 ] && [ "$height" -gt 0 ] || return 1
+
+  echo "$width $height"
+}
+
+default_session_name() {
+  # Derive a session name for a directory: repo/worktree for a linked
+  # worktree, the sanitized basename otherwise. Two worktrees whose paths end
+  # in the same segment derive the same name; that is caught later as a name
+  # collision, since a session is identified by its path.
+  #
+  # Args:
+  #   $1: path: directory to derive the session name from
+  local path="$1"
+
+  # The directory's own leaf. This is the whole answer unless $path turns out to be a worktree.
+  local name=$(sanitize_session_name "$(basename "$path")")
+
+  # Is $path a linked worktree? Its git dir is <common dir>/worktrees/<name>
+  # and holds a gitdir file. Both are tested: inside a subdirectory of an
+  # ordinary repo, rev-parse also answers absolutely.
+  local git_dir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)
+  if [ -n "$git_dir" ] && [ -f "$git_dir/gitdir" ] &&
+    [ "$(basename "$(dirname "$git_dir")")" = "worktrees" ]; then
+
+    # It is: prefix $name with the repo's own leaf, taken from <common dir>.
+    # Sanitized separately, so the joining `/` is the only one: a worktree
+    # directory named v1.2 would otherwise put a `.` in the name.
+    local common_dir=$(dirname "$(dirname "$git_dir")")
+    local repo_leaf=$(basename "$common_dir")
+
+    # Step over conventional bare-repo wrappers: worktrees of ~/code/api/.bare
+    # belong to `api`, not `.bare`.
+    case "$repo_leaf" in
+      .bare | .git) repo_leaf=$(basename "$(dirname "$common_dir")") ;;
+    esac
+
+    name="$(sanitize_session_name "$repo_leaf")/$name"
+  fi
+
+  echo "$name"
+}
+
+config_files() {
+  # Paths of the configuration files under $CONFIG_DIR, one per line.
+  # A configuration is an executable program; dirsesh runs it with a verb and
+  # reads its answer.
+  #
+  # -L: configurations are commonly symlinks. -perm -u+x: -executable is
+  # GNU-only. LC_ALL=C sort: tie-breaking must not depend on the locale.
+  [ -d "$CONFIG_DIR" ] || return
+
+  find -L "$CONFIG_DIR" -type f -perm -u+x 2>/dev/null | LC_ALL=C sort
+}
+
+config_name_for_file() {
+  # Echo the configuration name for a file: its path under $CONFIG_DIR minus
+  # any final extension, so `work`, `work.sh` and `work.fish` are all `work`.
+  # A leading dot is not an extension: `.work.fish` is `.work`.
+  #
+  # Args:
+  #   $1: file: path to a configuration file under $CONFIG_DIR
+  local rel base dir="" dot=""
+  rel="${1#"$CONFIG_DIR/"}"
+
+  base="${rel##*/}"
+  [ "$base" = "$rel" ] || dir="${rel%/*}/"
+
+  case "$base" in .*) dot="."; base="${base#.}" ;; esac
+  case "$base" in *.*) base="${base%.*}" ;; esac
+
+  printf '%s%s%s\n' "$dir" "$dot" "$base"
+}
+
+run_config() {
+  # Run a configuration with a verb: pattern, name, start or kill. The
+  # contract is argv in, stdout and exit status out; dirsesh never looks inside
+  # the file. A verb the program does not handle must exit 0. Only `pattern`
+  # and `name` treat stdout as an answer; for `start` and `kill` it is the
+  # session log, and callers redirect it there.
+  #
+  # set -m gives background jobs their own process group; the subshell keeps
+  # a configuration that exits from taking dirsesh with it.
+  #
+  # Args:
+  #   $1: file: path to the configuration
+  #   $2: verb: one of pattern, name, start, kill
+  #   $@: any further arguments the verb takes
+  local file="$1" verb="$2"
+  shift 2
+  ( set -m; exec "$file" "$verb" "$@" )
+}
+
+rank_configs_for_root() {
+  # Emit "<score>\t<file>" for every configuration whose pattern claims the
+  # directory, best first; nothing if none does.
+  #
+  # The score is the length of the pattern, longest first: a proxy for
+  # specificity measured on the pattern rather than the matched text, so a
+  # catch-all `.*` always sorts last. Ties break on LC_ALL=C file path order.
+  #
+  # grep -Eq rather than [[ =~ ]] so a pattern means the same thing whatever
+  # language printed it. A configuration that fails, prints nothing, or
+  # prints an invalid regex simply does not match.
+  #
+  # Args:
+  #   $1: path: the resolved directory a session would be rooted at
+  local path="$1"
+
+  local file pattern
+  while IFS= read -r file; do
+    pattern=$(
+      export SESSION=""
+      unset ROOT
+      run_config "$file" pattern 2>/dev/null
+    ) || continue
+
+    [ -n "$pattern" ] || continue
+
+    if printf '%s' "$path" | grep -Eq -- "$pattern" 2>/dev/null; then
+      printf '%s\t%s\n' "${#pattern}" "$file"
+    fi
+  done < <(config_files) | LC_ALL=C sort -t$'\t' -k1,1nr -k2,2
+}
+
+matching_config_for_root() {
+  # Echo the configuration claiming the directory (the top of the ranking),
+  # or nothing with a non-zero status.
+  #
+  # Args:
+  #   $1: path: the resolved directory a session would be rooted at
+  local path="$1"
+
+  local score file
+  while IFS=$'\t' read -r score file; do
+    printf '%s\n' "$file"
+    return 0
+  done < <(rank_configs_for_root "$path")
+
+  return 1
+}
+
+config_session_name() {
+  # Echo the session name configuration $1 gives directory $2, or nothing
+  # with a non-zero status when it has no opinion. The directory arrives as
+  # both the verb's argument and ROOT; SESSION is unset, being the thing
+  # computed. Only the first line is read, whitespace-trimmed. Failing or
+  # printing nothing is not an error: the default naming takes over. What is
+  # printed is sanitized rather than refused, since names come from things
+  # the configuration does not control (a branch, a directory).
+  #
+  # Args:
+  #   $1: file: path to the configuration
+  #   $2: path: the resolved directory the configuration matched
+  local file="$1" path="$2" name
+
+  name=$(
+    export ROOT="$path"
+    unset SESSION
+    run_config "$file" name "$path" 2>/dev/null \
+      | head -n 1 \
+      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+  ) || return 1
+
+  [ -n "$name" ] || return 1
+
+  sanitize_session_name "$name"
+}
+
+report_name_collision() {
+  # Explain a name collision on stderr: the derived name, the directory it
+  # was derived for, and where the session holding it already lives.
+  #
+  # Args:
+  #   $1: name: the derived session name
+  #   $2: path: the directory a session is being created for
+  #   $3: existing: the directory the session already called $1 was started at
+  local name="$1" path="$2" existing="$3"
+  local red reset
+  red=$(tput setaf 1) reset=$(tput sgr0)
+
+  {
+    printf '%sSession name collision%s\n' "$red" "$reset"
+    printf '  %-18s%s\n' 'name' "$name"
+    printf '  %-18s%s\n' 'new session at' "$path"
+    printf '  %-18s%s\n' "'$name' is open at" "${existing:-(unknown)}"
+  } >&2
+}
+
+session_name_prompt() {
+  # Prompt for a session name, offering $2 as the default. Echoes the name.
+  #
+  # Args:
+  #   $1: path: the directory the session will be created at
+  #   $2: session_name: the name to offer as the default
+  #   $3: quiet: optional; any value suppresses the path header
+  local path="$1"
+  local session_name="$2"
+  local quiet="$3"
+
+  [ -n "$quiet" ] || printf "%s\n" "$(tput setaf 8)$path$(tput sgr0)" >&2
+  while true; do
+    local prompt="Enter session name"
+    if ! tmux has-session -t "=$session_name" 2>/dev/null; then
+      prompt="$prompt [$(tput setaf 4)${session_name}$(tput sgr0)]"
+    fi
+    # A read that cannot be answered ends this rather than looping: under
+    # tmux's run-shell there is no terminal, and an unanswerable prompt in a
+    # loop is a hang.
+    if ! read -rp "$prompt: " user_input; then
+      printf "\n" >&2
+      notify "Error: no terminal to read a session name from"
+      return 1
+    fi
+
+    local candidate="${user_input:-$session_name}"
+
+    # `.` and `:` are tmux target separators; a name holding either could be
+    # created but never targeted again. Rejected rather than rewritten: a
+    # typed name is not dirsesh's to change. `/` is fine (repo/worktree).
+    case "$candidate" in
+      *[:.]*)
+        printf "$(tput setaf 1)Session names cannot contain ':' or '.'$(tput sgr0)\n" >&2
+        continue
+        ;;
+    esac
+
+    session_name="$candidate"
+    if ! tmux has-session -t "=$session_name" 2>/dev/null; then
+      break
+    fi
+    printf "$(tput setaf 1)Session '%s' already exists.$(tput sgr0)\n" "$session_name" >&2
+  done
+  echo "$session_name"
+}
+
+#################
+# api functions #
+#################
+uninstall_hook() {
+  # Drop every element of a global tmux hook that calls back on one of dirsesh's
+  # internal verbs. Anyone else's hooks on that event are left alone.
+  #
+  # Args:
+  #   $1: hook: the tmux hook name
+  #   $2: verb: the dirsesh verb to match
+  local hook="$1" verb="$2"
+
+  # Unsetting an array element leaves the others at their own indexes, so the
+  # indexes collected here stay valid as they are removed.
+  local index
+  while IFS= read -r index; do
+    tmux set-hook -gu "$hook[$index]"
+  done < <(tmux show-hooks -g 2>/dev/null \
+    | sed -n "s/^$hook\\[\\([0-9]\\{1,\\}\\)\\].*$verb.*/\\1/p")
+}
+
+install_hook() {
+  # Point a global tmux hook at one of dirsesh's internal verbs. Appended, so
+  # anyone else's hooks on it survive; any hook a previous `dirsesh init` left on
+  # it is dropped first, so re-sourcing tmux.conf does not stack duplicates.
+  #
+  # Args:
+  #   $1: hook: the tmux hook name
+  #   $2: verb: the dirsesh verb it calls back on
+  #   $3: self: absolute path to the dirsesh program
+  local hook="$1" verb="$2" self="$3"
+
+  uninstall_hook "$hook" "$verb"
+
+  tmux set-hook -ga "$hook" \
+    "run-shell \"'$self' $verb '#{hook_session}' '#{pid}' '#{hook_session_name}'\""
+}
+
+cleanup_hook_installed() {
+  # Whether `dirsesh init` has run on this server. Without the hook a session is
+  # still built exactly as asked; it just never gets torn down, which is a
+  # quiet way to leak whatever `kill` was going to remove.
+  #
+  # No server at all is not that: the `tmux new-session` about to start one
+  # sources tmux.conf, and the hook arrives with it. Only a server that is
+  # already up can be missing it, so an unreachable one answers yes.
+  local hooks
+  hooks=$(tmux show-hooks -g 2>/dev/null) || return 0
+  printf '%s\n' "$hooks" | grep -q -- "$HOOK_CLOSED"
+}
+
+init_hook() {
+  # Install the one tmux hook a configured session's teardown works through.
+  # `dirsesh init` reaches this, alongside the bookmark status line hooks, and
+  # is what goes in tmux.conf, where it runs once per server:
+  #
+  #   run-shell "dirsesh init"
+  #
+  # session-closed runs a configuration's `kill` when the session it built
+  # goes away, however it goes away.
+  #
+  # This is the only thing dirsesh does behind your back, and it is the only
+  # thing it has to. Creating a session always has someone asking for it:
+  # `dirsesh at` is the request, and a plain `tmux new-session` is a different
+  # request that dirsesh has no business rewriting. Destroying one does not.
+  # `X`, a kill picker, the last pane exiting, `tmux kill-server`, a client
+  # attached from somewhere else -- there is no single command to hang
+  # cleanup off, so it hangs off the event instead.
+  #
+  # It stays opt-in all the same: the hook does nothing for a session that
+  # has no cleanup record, and only `dirsesh at` writes one. A session dirsesh did
+  # not build closes exactly as it did before dirsesh was installed.
+  #
+  # The hook is global. A session's own options are already freed when
+  # session-closed fires, so a hook set on the session never runs at all.
+  local self
+  if ! self=$(dirsesh_path); then
+    notify "Error: could not resolve the path to dirsesh"
+    exit 1
+  fi
+
+  install_hook session-closed "$HOOK_CLOSED" "$self" || exit 1
+
+  # An earlier dirsesh drove session creation from a hook too. A server still
+  # carrying it would call a verb this version no longer answers, once per
+  # session created, so it is taken off here rather than left to error.
+  uninstall_hook session-created _session_created
+
+  # A tmux server that is killed outright closes no sessions and so fires no
+  # hooks, leaving its records behind. Reap the ones whose server is gone.
+  # Another live server's records are left alone: several may be running.
+  local dir pid
+  for dir in "$RECORD_DIR"/*/; do
+    [ -d "$dir" ] || continue
+    pid=$(basename "$dir")
+    case "$pid" in
+      *[!0-9]*) continue ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || rm -rf "$dir"
+  done
+}
+
+session_closed() {
+  # The session-closed hook, called back by tmux. Runs the `kill` verb of the
+  # configuration claiming the directory the closed session was started at.
+  #
+  # The configuration is resolved again here rather than remembered from
+  # `start`, so the file that claims the directory now is the one that cleans
+  # up after it.
+  #
+  # Args:
+  #   $1: id: the closed session's id, #{hook_session}
+  #   $2: pid: the tmux server's pid, #{pid}
+  #   $3: session: the closed session's name, #{hook_session_name}
+  local id="$1" pid="$2" session="$3"
+
+  local record
+  record=$(session_record "$pid" "$id")
+
+  # No record: no configuration built this session -- the path was
+  # unclaimed, -noconfig was given, or `dirsesh at` was never involved. Nothing is owed.
+  #
+  # Every session tmux closes reaches this line, and this is where nearly all
+  # of them stop. Only `dirsesh at` writes a record, so a global hook stays an
+  # opt-in one: a session dirsesh did not build closes exactly as it would have
+  # on a vanilla server.
+  [ -f "$record" ] || exit 0
+
+  local root
+  root=$(cat "$record")
+  rm -f "$record"
+  [ -n "$root" ] || exit 0
+
+  local session_file
+  session_file=$(matching_config_for_root "$root") || exit 0
+
+  local log_dir="$LOG_DIR/$session"
+  local log_file="$log_dir/dirsesh.log"
+  mkdir -p "$log_dir"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session' ($(config_name_for_file "$session_file"))" > "$log_file"
+
+  # Backgrounded so tmux's run-shell returns at once and the hook does not
+  # hold up the server while cleanup runs. ROOT comes from the record, so
+  # `kill` sees the ROOT that `start` saw.
+  nohup env SESSION="$session" ROOT="$root" \
+    "$session_file" kill >> "$log_file" 2>&1 &
+}
+
+match_configs() {
+  # Print how a directory ranks against every configuration that claims it,
+  # one "<score>\t<file>" per line, best first. Precedence depends on every
+  # other file too, so being able to ask beats guessing.
+  #
+  # Args:
+  #   $1: path: directory to test; defaults to the current directory
+  local path="${1:-$PWD}"
+
+  path="${path/#\~/$HOME}"
+
+  local resolved
+  if ! resolved=$(cd "$path" 2>/dev/null && pwd -P); then
+    notify "Error: Directory '$path' does not exist"
+    exit 1
+  fi
+
+  local ranked
+  ranked=$(rank_configs_for_root "$resolved")
+
+  # No match is an answer, not a failure, but the non-zero status makes it
+  # testable, and saying so on stderr keeps stdout clean for callers.
+  if [ -z "$ranked" ]; then
+    notify "No configuration claims $resolved"
+    exit 1
+  fi
+
+  printf '%s\n' "$ranked"
+}
+
+###################################################
+# the session: where every path ends up #
+###################################################
+
+session_at() {
+  # Switch to the session already open at a directory, or create one there.
+  #
+  # Everything a configuration does happens here, in the foreground of an
+  # explicit `dirsesh at`: the session is named, built and recorded before this
+  # returns. That is deliberate. Creating a session always has someone asking
+  # for it, and `dirsesh at` is that request -- a plain `tmux new-session` is a
+  # different request, and dirsesh leaves it alone.
+  #
+  # Args:
+  #   $1: path: the directory to start the session at
+  #   $@: -noconfig, -name (prompts for a name), -name=VALUE (takes the name outright)
+  local selected="$1"
+  shift
+
+  local no_config="" name_mode="" name_value="" arg
+  for arg in "$@"; do
+    case "$arg" in
+      -noconfig) no_config=1 ;;
+      -name) name_mode=prompt ;;
+      -name=*) name_mode=value; name_value="${arg#-name=}" ;;
+    esac
+  done
+
+  selected="${selected/#\~/$HOME}"
+
+  # Resolved here rather than by the caller: a session is identified by the
+  # directory it was started at, so every path has to arrive in the same
+  # form no matter who printed it.
+  local resolved
+  if ! resolved=$(cd "$selected" 2>/dev/null && pwd -P); then
+    notify "Error: Directory '$selected' does not exist"
+    exit 1
+  fi
+  selected="$resolved"
+
+  # A session is identified by the directory it was started at, not by its
+  # name: naming a directory that already has a session returns to it,
+  # whatever it has been renamed to. Nothing is being created, so this is
+  # also the answer -name's value gets, given or prompted-for.
+  local existing
+  if existing=$(session_for_path "$selected"); then
+    switch_or_attach "$existing"
+    exit 0
+  fi
+
+  # A configuration may claim the path with `pattern`, naming the session
+  # (`name`) and building it (`start`). -noconfig opts out of both.
+  local matching_file=""
+  if [ -z "$no_config" ]; then
+    matching_file=$(matching_config_for_root "$selected") || matching_file=""
+  fi
+
+  # `kill` runs from the session-closed hook, which is the only thing that
+  # catches a session however it dies. Missing, the session is still built
+  # exactly as asked and only the teardown is lost, so this is said rather
+  # than fatal.
+  if [ -n "$matching_file" ] && ! cleanup_hook_installed; then
+    notify "dirsesh: no session-closed hook; '$(config_name_for_file "$matching_file")' kill will not run. Add 'run-shell \"dirsesh init\"' to your tmux.conf"
+  fi
+
+  # The configuration's name if it has an opinion, the directory's otherwise.
+  local session_name=""
+  [ -n "$matching_file" ] && session_name=$(config_session_name "$matching_file" "$selected")
+  [ -n "$session_name" ] || session_name=$(default_session_name "$selected")
+
+  case "$name_mode" in
+    value)
+      # A name given outright is not dirsesh's to rewrite -- same rule the
+      # prompt applies below: refused rather than sanitized. Given directly
+      # rather than at a prompt, a collision is also refused rather than
+      # asked about again: the point of handing over a name is to skip the
+      # interactive path (an interactive command is often what runs next).
+      case "$name_value" in
+        *[:.]*)
+          notify "Error: Session names cannot contain ':' or '.'"
+          exit 1
+          ;;
+      esac
+      if tmux has-session -t "=$name_value" 2>/dev/null; then
+        notify "Error: session '$name_value' is already open at $(path_for_session "$name_value")"
+        exit 1
+      fi
+      session_name="$name_value"
+      ;;
+    prompt)
+      # -name with no value is the last word: the rules still make the
+      # suggestion, but anything typed over it wins. session_name_prompt
+      # returns rather than exits because an exit inside a command
+      # substitution only ends the subshell.
+      session_name=$(session_name_prompt "$selected" "$session_name") || exit 1
+      ;;
+    *)
+      # The path is not open (settled above), so a session already holding this
+      # name is a genuine collision: two directories whose names landed on the
+      # same string. Switching there would go somewhere that was not asked for,
+      # so report it and ask for a name.
+      if tmux has-session -t "=$session_name" 2>/dev/null; then
+        local taken="$session_name" existing_path
+        existing_path=$(path_for_session "$taken")
+        report_name_collision "$taken" "$selected" "$existing_path"
+
+        # quiet: the report already put the path on stderr.
+        session_name=$(session_name_prompt "$selected" "$taken" quiet) || {
+          # The prompt's error goes to stderr, which has nowhere to land under
+          # tmux's run-shell; notify becomes a tmux message there.
+          notify "Error: session '$taken' is already open at ${existing_path:-an unknown path}; $selected needs a name of its own"
+          exit 1
+        }
+      fi
+      ;;
+  esac
+
+  local width height
+  read -r width height < <(client_size)
+
+  # Sized up front: tmux creates detached sessions at 80x24, and percentage
+  # splits made before the client attaches drift once the real size arrives.
+  local session_id
+  session_id=$(tmux new-session -d -P -F '#{session_id}' -s "$session_name" -c "$selected" \
+    ${width:+-x "$width"} ${height:+-y "$height"}) || exit 1
+
+  # Record the directory on the session itself; this is what identifies it.
+  # The trailing `:` is load-bearing: set-option takes a target pane, and
+  # `=name` alone is read as a pane target and fails to resolve, while
+  # `=name:` is that session's current pane.
+  tmux set-option -t "=$session_name:" @dirsesh_path "$selected"
+
+  if [ -n "$matching_file" ]; then
+    # A session no configuration claimed runs no script, so it gets no log.
+    local log_dir="$LOG_DIR/$session_name"
+    local log_file="$log_dir/dirsesh.log"
+    mkdir -p "$log_dir"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name' ($(config_name_for_file "$matching_file"))" > "$log_file"
+
+    # Subshell so a configuration aborting under its own `set -e` does not
+    # tear down a session tmux already created. The cleanup record is written
+    # inside it: it is only owed once the configuration has actually been
+    # applied, and it is the only thing that makes the session-closed hook
+    # act on this session at all.
+    (
+      export SESSION="$session_name" ROOT="$selected"
+      run_config "$matching_file" start
+
+      local pid record
+      pid=$(tmux display-message -p '#{pid}' 2>/dev/null)
+      if [ -n "$pid" ] && [ -n "$session_id" ]; then
+        record=$(session_record "$pid" "$session_id")
+        mkdir -p "$(dirname "$record")"
+        printf '%s\n' "$selected" > "$record"
+      fi
+    ) >> "$log_file" 2>&1
+  fi
+
+  switch_or_attach "$session_name"
+}
+
+at_path() {
+  # Start a session at a directory, or switch to the session already open there
+  local session_flags=() paths=() arg
+  for arg in "$@"; do
+    case "$arg" in
+      -noconfig | -name | -name=*) session_flags+=("$arg") ;;
+      -*)
+        notify "Error: Unknown option '$arg' for 'dirsesh at'"
+        exit 1
+        ;;
+      *) paths+=("$arg") ;;
+    esac
+  done
+
+  if [ "${#paths[@]}" -gt 1 ]; then
+    notify "Error: 'dirsesh at' takes one directory"
+    exit 1
+  fi
+
+  # A path is required. dirsesh once picked one itself when given none, which
+  # could not survive an unquoted `dirsesh at $(chooser)`: a chooser you back
+  # out of prints nothing, the shell drops the empty word, and what reaches
+  # here is indistinguishable from asking for no path at all -- so backing out
+  # of your own chooser opened dirsesh's instead. Requiring the argument makes
+  # the two cases distinct again.
+  if [ "${#paths[@]}" -eq 0 ]; then
+    notify "Error: 'dirsesh at' needs a directory, e.g. dirsesh at \"\$(dirsesh pick-repo)\""
+    exit 1
+  fi
+
+  local selected="${paths[0]}"
+
+  # An empty argument is the answer a chooser gives when it declines: pressing
+  # escape leaves `dirsesh at "$(dirsesh pick-repo)"` with one empty
+  # argument. That is not an error, and there is nothing to open. Quoting the
+  # substitution is what keeps it an argument at all.
+  [ -n "$selected" ] || exit 0
+
+  session_at "$selected" ${session_flags+"${session_flags[@]}"}
+}
+
+# Parse arguments
+#
+# The verb arrives from the top-level dirsesh, which owns the usage text and
+# forwards the verb rather than swallowing it.
+if [ $# -eq 0 ]; then
+  notify "Error: 'dirsesh at' needs a verb"
+  exit 1
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  at)
+    at_path "$@"
+    ;;
+  match)
+    match_configs "$1"
+    ;;
+  init)
+    init_hook
+    ;;
+  "$HOOK_CLOSED")
+    session_closed "$1" "$2" "$3"
+    ;;
+  *)
+    notify "Error: Unknown command '$command' for 'dirsesh at'"
+    exit 1
+    ;;
+esac

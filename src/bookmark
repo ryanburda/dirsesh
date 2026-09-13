@@ -2,7 +2,7 @@
 #
 # bookmark: one printable character, one directory, the way vim marks do.
 #
-# Usage: dirsesh-extras bookmark <command> [args...]
+# Usage: dirsesh bookmark <command> [args...]
 #   set <char> [path]     Bookmark a directory (path defaults to the current directory)
 #   remove <char>         Remove a bookmark
 #   get <char>            Print the directory a bookmark points at
@@ -11,7 +11,7 @@
 #   status [path]         Bookmarks with a tmux session open at them, for a status line
 #     -s, --style           tmux style for the other sessions' characters (default: dim)
 #     -c, --current-style   tmux style for the current session's character (default: fg=yellow,bold)
-#   status-init           Install the tmux hooks `status` needs (put this in tmux.conf)
+#   status-init           Install the tmux hooks `status` needs (`dirsesh init` does this too)
 #
 # A bookmark is one printable character pointing at one directory. Setting a
 # character that is already set replaces it, no confirmation, the way `m` does
@@ -23,8 +23,8 @@
 # `get` and `pick` print a directory on stdout and nothing else, so they
 # compose with dirsesh exactly as the pickers do:
 #
-#   dirsesh at "$(dirsesh-extras bookmark get m)"
-#   dirsesh at "$(dirsesh-extras bookmark pick)"
+#   dirsesh at "$(dirsesh bookmark get m)"
+#   dirsesh at "$(dirsesh bookmark pick)"
 #
 # Each bookmark is a file named after its character, holding the directory it
 # points at, in ${XDG_STATE_HOME:-~/.local/state}/dirsesh/bookmarks -- or under
@@ -42,7 +42,7 @@ HOOK_REFRESH=_bookmark-refresh-status
 
 usage() {
   # This script's own header comment, which is where its usage is written down
-  # -- the same text `dirsesh-extras bookmark -help` prints, read from the
+  # -- the same text `dirsesh bookmark -help` prints, read from the
   # same place so the two cannot drift.
   sed -n '2,${
     /^#/!q
@@ -67,17 +67,17 @@ notify() {
   fi
 }
 
-extras_path() {
-  # Echo the absolute path to re-run `dirsesh-extras bookmark` by, or nothing
+dirsesh_path() {
+  # Echo the absolute path to re-run `dirsesh bookmark` by, or nothing
   # with a non-zero status. Both callers run it later in an environment of
   # their own -- fzf in a shell, tmux in a hook -- and neither PATH need hold
   # it.
   #
-  # dirsesh-extras runs this script by its path in the checkout, symlinks
-  # already resolved, so its own file is the sibling of the extras/ directory
-  # this one lives in. That absolute path is preferred over the installed
-  # link: tmux's run-shell starts a non-interactive shell whose PATH need not
-  # be the one dirsesh-extras was installed onto.
+  # dirsesh runs this script by its path in the checkout, symlinks already
+  # resolved, so its own file is the parent of the src/ directory this one
+  # lives in. That absolute path is preferred over the installed link: tmux's
+  # run-shell starts a non-interactive shell whose PATH need not be the one
+  # dirsesh was installed onto.
   local self="$0" dir
 
   case "$self" in
@@ -85,12 +85,12 @@ extras_path() {
     *) self=$(command -v -- "$self" 2>/dev/null) || return 1 ;;
   esac
 
-  if dir=$(cd "$(dirname "$self")/.." && pwd -P) && [ -f "$dir/dirsesh-extras" ]; then
-    printf '%s/dirsesh-extras\n' "$dir"
+  if dir=$(cd "$(dirname "$self")/.." && pwd -P) && [ -f "$dir/dirsesh" ]; then
+    printf '%s/dirsesh\n' "$dir"
     return 0
   fi
 
-  command -v -- dirsesh-extras 2>/dev/null
+  command -v -- dirsesh 2>/dev/null
 }
 
 is_bookmark_char() {
@@ -197,7 +197,7 @@ install_status_hook() {
   #
   # Args:
   #   $1: hook: the tmux hook name
-  #   $2: self: absolute path to dirsesh-extras
+  #   $2: self: absolute path to dirsesh
   local hook="$1" self="$2"
 
   # Unsetting an array element leaves the others at their own indexes, so the
@@ -302,7 +302,7 @@ bookmark_get() {
   # Print the directory a bookmark points at. A picker in its own right: it
   # names a directory and nothing else, so
   #
-  #   dirsesh at "$(dirsesh-extras bookmark get m)"
+  #   dirsesh at "$(dirsesh bookmark get m)"
   #
   # goes straight to a session at whatever m bookmarks, skipping the fzf
   # `pick` opens.
@@ -347,7 +347,7 @@ bookmark_pick() {
   # disk. fzf hands a binding to a shell, so the path is quoted for one; fzf
   # itself quotes {1}.
   local self
-  self=$(extras_path) || self="$0"
+  self=$(dirsesh_path) || self="$0"
   printf -v self '%q' "$self"
 
   local selected
@@ -446,10 +446,15 @@ bookmark_status() {
 }
 
 status_init() {
-  # Install the tmux hooks that keep the status line current. Meant for
-  # tmux.conf, where it runs once per server:
+  # Install the tmux hooks that keep the status line current. `dirsesh init`
+  # runs this, so a tmux.conf that already has
   #
-  #   run-shell "dirsesh-extras bookmark status-init"
+  #   run-shell "dirsesh init"
+  #
+  # needs nothing further. This is the way to install these hooks on their own,
+  # without the session cleanup hook that comes with them:
+  #
+  #   run-shell "dirsesh bookmark status-init"
   #
   # A status line is only redrawn every status-interval seconds, so a session
   # opened or killed elsewhere would otherwise take that long to show up in
@@ -460,8 +465,8 @@ status_init() {
   # Both hooks are global: a session's own options are already freed when
   # session-closed fires, so a hook set on the session never runs at all.
   local self
-  if ! self=$(extras_path); then
-    notify "Error: could not resolve the path to dirsesh-extras"
+  if ! self=$(dirsesh_path); then
+    notify "Error: could not resolve the path to dirsesh"
     exit 1
   fi
 
@@ -520,7 +525,7 @@ case "$command" in
     usage
     ;;
   *)
-    notify "Error: Unknown command '$command' for 'dirsesh-extras bookmark'"
+    notify "Error: Unknown command '$command' for 'dirsesh bookmark'"
     usage
     exit 1
     ;;

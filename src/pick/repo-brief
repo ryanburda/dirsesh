@@ -3,7 +3,7 @@
 # pick-repo-brief: print the directory of a git repository under $HOME that has
 # changes, chosen with fzf.
 #
-# Usage: dirsesh-extras pick-repo-brief
+# Usage: dirsesh pick-repo-brief
 #
 # A repository has changes when it has any of:
 #   - commits waiting upstream

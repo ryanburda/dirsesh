@@ -3,7 +3,7 @@
 # pick-worktree: print the directory of a worktree of the current repository,
 # chosen with fzf.
 #
-# Usage: dirsesh-extras pick-worktree
+# Usage: dirsesh pick-worktree
 #
 # Must be run from inside a git repository (or another worktree).
 #

@@ -2,12 +2,12 @@
 #
 # session-logs: browse the logs a dirsesh configuration wrote, chosen with fzf.
 #
-# Usage: dirsesh-extras session-logs [session]
+# Usage: dirsesh session-logs [session]
 #   session  Browse only this session's logs instead of every session's.
 #
 # Meant to be run from a tmux window or popup:
 #
-#   bind-key L new-window -n dirsesh-logs "dirsesh-extras session-logs"
+#   bind-key L new-window -n dirsesh-logs "dirsesh session-logs"
 #
 # dirsesh writes a configuration's `start` and `kill` output to
 # $XDG_STATE_HOME/dirsesh/logs/<session>/dirsesh.log, and a configuration may write

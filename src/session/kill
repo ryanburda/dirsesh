@@ -2,7 +2,7 @@
 #
 # session-kill: kill a running tmux session, chosen with fzf.
 #
-# Usage: dirsesh-extras session-kill [session]
+# Usage: dirsesh session-kill [session]
 #   session  Kill this session instead of showing the picker.
 
 notify() {

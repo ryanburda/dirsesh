@@ -416,6 +416,10 @@ Teardown is a tmux hook, installed once from `~/.tmux.conf`:
 run-shell "dirsesh init"
 ```
 
+(`dirsesh init` also installs the hooks that keep the [`bookmark status`](bookmark.md) line
+current. They have nothing to do with configurations; one `init` line in `tmux.conf` is simply
+all of dirsesh's setup.)
+
 The asymmetry is the design, not an accident. **Creating a session has a natural opt-in point;
 destroying one does not.** Something always asks for a session, and `dirsesh at` is that request.
 A plain `tmux new-session` at a claimed directory is left alone, because it is a different

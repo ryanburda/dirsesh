@@ -2,7 +2,7 @@
 #
 # pick-dir: print a directory under $HOME, chosen with fzf.
 #
-# Usage: dirsesh-extras pick-dir
+# Usage: dirsesh pick-dir
 #
 # No git involved and no depth limit: this is the picker for when the thing you
 # want a session at is a plain directory. It is also the slowest to appear on a

@@ -36,23 +36,27 @@ fi
 
 mkdir -p "$BIN_DIR"
 
-# dirsesh-extras is linked too: its pickers are what you substitute into
-# `dirsesh at`, so it is only reachable from a shell alias or a tmux bind if
-# it is on PATH under its own name.
-for prog in dirsesh dirsesh-extras; do
-    src="$DIRSESH_HOME/$prog"
-    dest="$BIN_DIR/$prog"
+# Only `dirsesh` is linked: every subcommand runs a script under src/, which
+# it finds relative to itself with the symlink resolved.
+src="$DIRSESH_HOME/dirsesh"
+dest="$BIN_DIR/dirsesh"
 
-    [ -f "$src" ] || die "expected $src to exist"
+[ -f "$src" ] || die "expected $src to exist"
 
-    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
-        die "$dest exists and is not a symlink; remove it and retry"
-    fi
+if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+    die "$dest exists and is not a symlink; remove it and retry"
+fi
 
-    chmod +x "$src"
-    ln -sfn "$src" "$dest"
-    echo "Linked $dest -> $src"
-done
+chmod +x "$src"
+ln -sfn "$src" "$dest"
+echo "Linked $dest -> $src"
+
+# An earlier layout had a dirsesh-extras program of its own; its commands are
+# `dirsesh` subcommands now, so a link left over from then points at nothing.
+if [ -L "$BIN_DIR/dirsesh-extras" ]; then
+    rm -f "$BIN_DIR/dirsesh-extras"
+    echo "Removed $BIN_DIR/dirsesh-extras (now 'dirsesh' subcommands)"
+fi
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

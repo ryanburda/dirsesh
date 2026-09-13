@@ -2,7 +2,7 @@
 #
 # pick-repo: print the directory of a git repository under $HOME, chosen with fzf.
 #
-# Usage: dirsesh-extras pick-repo
+# Usage: dirsesh pick-repo
 #
 # The walk is bounded at 5 levels deep and prunes .git, node_modules and every
 # hidden directory, so it stays fast and does not descend into a dependency
