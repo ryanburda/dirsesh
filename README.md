@@ -171,12 +171,22 @@ cloned elsewhere.
 
 ```bash
 source ~/.local/share/tmux-dirsesh/completions/dirsesh.bash
+source ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.bash
 ```
 
-**Zsh**: add to `~/.zshrc` (or rename `dirsesh.zsh` to `_dirsesh` in an existing fpath directory):
+**Zsh**: `compinit` finds a completion by file name, so link them in as `_dirsesh` and
+`_dirsesh-extras`:
 
 ```bash
-fpath=(~/.local/share/tmux-dirsesh/completions $fpath)
+mkdir -p ~/.zsh/completions
+ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.zsh        ~/.zsh/completions/_dirsesh
+ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.zsh ~/.zsh/completions/_dirsesh-extras
+```
+
+and add to `~/.zshrc`, before `compinit` runs:
+
+```bash
+fpath=(~/.zsh/completions $fpath)
 autoload -Uz compinit && compinit
 ```
 
@@ -184,6 +194,7 @@ autoload -Uz compinit && compinit
 
 ```bash
 ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.fish ~/.config/fish/completions/
+ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh-extras.fish ~/.config/fish/completions/
 ```
 </details>
 

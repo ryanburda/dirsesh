@@ -170,8 +170,10 @@ once in tmux for when one is:
 ```zsh
 # ~/.zshrc
 
-alias d='dirsesh at "$(dirsesh-extras pick-repo)"'
-alias dw='dirsesh at "$(dirsesh-extras pick-worktree)"'
+alias d='dirsesh at "$(dirsesh-extras pick-dir)"'
+alias r='dirsesh at "$(dirsesh-extras pick-repo)"'
+alias R='dirsesh at "$(dirsesh-extras pick-repo-brief)"'
+alias w='dirsesh at "$(dirsesh-extras pick-worktree)"'
 ```
 
 ```tmux
@@ -183,5 +185,4 @@ bind-key R popup -E 'dirsesh at "$(dirsesh-extras pick-repo-brief)"'
 bind-key w popup -E 'dirsesh at "$(dirsesh-extras pick-worktree)"'
 ```
 
-Any command that prints a path works in the same position, so the bindings you end up with need
-not stop at the pickers here.
+This ensures your muscle memory is similar no matter if you are in or out of tmux.
