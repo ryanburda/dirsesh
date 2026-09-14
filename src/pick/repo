@@ -269,65 +269,98 @@ git_repo_row() {
   printf '%s\t%s  %b\n' "$dir" "$dir" "$brief"
 }
 
-# -maxdepth bounds the walk under the root, unless it was turned off above;
-# -prune on .git and node_modules stops the descent right after printing a
-# hit, so nested repos (a dependency vendored with its own .git) are not
-# walked into; -prune on every other dot-directory keeps hidden directories --
-# caches like ~/.cache and ~/.npm, but also ~/.config, ~/.ssh, etc. -- out of
-# the walk entirely. node_modules matches are printed too, only to be pruned
-# from descent, so they are filtered back out below.
-#
-# `! -path "$root"` exempts the starting point from that last prune, because a
-# root that is itself hidden would otherwise be pruned before the walk began
-# and nothing would be found: a DIRSESH_PICK_REPO_ROOT of ~/.config, or of a
-# worktree under a hidden directory, is a reasonable thing to want.
-#
-# Matching .git by name rather than asking each directory whether it has one,
-# because .git is not always a directory: a linked worktree, and a checkout of
-# a bare clone, both carry a .git *file* holding a gitdir: line.
-#
-# A bare repository has no working tree to open a session in, and the container
-# of a `git clone --bare` layout carries a .git of its own -- a file holding
-# `gitdir: ./.bare`, or the bare repository sitting at .git itself -- so the
-# walk finds it looking like any other repo. Only git can tell the two apart.
-# The worktrees checked out beside it are found on their own, and are what you
-# actually want to sit in. Asking git also drops a stray directory called .git
-# that is no repository at all, in the same breath.
-#
-# Asked 8 at a time, for the same reason the inspection below is: one rev-parse
-# costs about two milliseconds, which is nothing until it is the whole list in
-# a row. A bare checkout puts two candidates on the list per project -- the
-# container and each worktree beside it -- so the list is longer than the
-# number of repositories that come out of it, and a picker opens on a keypress.
-# NUL separation so repository paths with spaces survive. `|| true` because a
-# candidate that is not a working tree is the ordinary case, not a failure.
-#
-# The sort comes after rather than before, since running the checks in parallel
-# is what scrambles the order they finish in.
-dirs=$(find "$root" "${maxdepth[@]}" \( -name .git -o -name node_modules \) -prune -print -o \( ! -path "$root" -a -name '.*' \) -prune 2>/dev/null \
-  | grep '/\.git$' \
-  | sed 's#/\.git$##' \
-  | tr '\n' '\0' \
-  | xargs -0 -P 8 -n 1 \
-          bash -c '[ "$(git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] \
-                     && printf "%s\n" "$1" || true' _ \
-  | LC_ALL=C sort -u)
-
-if [ -z "$dirs" ]; then
-  note "No git repositories found under $root"
-  exit 1
-fi
+repo_paths() {
+  # Every repository under the root, one path per line, printed as each one is
+  # confirmed rather than all together at the end. Whoever reads this can start
+  # showing repositories while the walk behind it is still running.
+  #
+  # -maxdepth bounds the walk under the root, unless it was turned off above;
+  # -prune on .git and node_modules stops the descent right after printing a
+  # hit, so nested repos (a dependency vendored with its own .git) are not
+  # walked into; -prune on every other dot-directory keeps hidden directories --
+  # caches like ~/.cache and ~/.npm, but also ~/.config, ~/.ssh, etc. -- out of
+  # the walk entirely. node_modules matches are printed too, only to be pruned
+  # from descent, so they are filtered back out below.
+  #
+  # `! -path "$root"` exempts the starting point from that last prune, because a
+  # root that is itself hidden would otherwise be pruned before the walk began
+  # and nothing would be found: a DIRSESH_PICK_REPO_ROOT of ~/.config, or of a
+  # worktree under a hidden directory, is a reasonable thing to want.
+  #
+  # Matching .git by name rather than asking each directory whether it has one,
+  # because .git is not always a directory: a linked worktree, and a checkout of
+  # a bare clone, both carry a .git *file* holding a gitdir: line.
+  #
+  # The sort is the one place output is held back, and it is held back by the
+  # walk alone -- no git has run at that point, and the walk is milliseconds.
+  # Sorting the candidates rather than the answers is what lets the checks below
+  # print as they go and still print in order: filtering a sorted list leaves it
+  # sorted.
+  find "$root" "${maxdepth[@]}" \( -name .git -o -name node_modules \) -prune -print -o \( ! -path "$root" -a -name '.*' \) -prune 2>/dev/null \
+    | grep '/\.git$' \
+    | sed 's#/\.git$##' \
+    | LC_ALL=C sort -u \
+    | while IFS= read -r dir; do
+        # A bare repository has no working tree to open a session in, and the
+        # container of a `git clone --bare` layout carries a .git of its own --
+        # a file holding `gitdir: ./.bare`, or the bare repository sitting at
+        # .git itself -- so the walk finds it looking like any other repo. Only
+        # git can tell the two apart. The worktrees checked out beside it are
+        # found on their own, and are what you actually want to sit in.
+        #
+        # This drops a stray directory called .git that is no repository at all
+        # in the same breath: rev-parse refuses it just the same.
+        #
+        # One at a time, not 8 at a time: each of these costs about two
+        # milliseconds, so running them in parallel would shorten the wait for
+        # the whole list -- but it would also finish them out of order, and the
+        # order is what the list has to be collected and sorted to recover. A
+        # picker that opens at once and fills in beats one that opens complete.
+        [ "$(git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || continue
+        printf '%s\n' "$dir"
+      done
+}
 
 # Nothing to show and nothing to leave out: the paths are the whole answer, and
-# no repository has to be opened to produce them.
+# no repository has to be opened to produce them. Streamed straight into fzf,
+# rather than collected first, so the picker is on screen and usable while the
+# walk behind it is still going -- the shape `pick-dir` has always had.
 if [ -z "$brief" ] && [ -z "$filter" ]; then
-  selected=$(printf '%s\n' "$dirs" | fzf --cycle --prompt "Repo > ")
+  # Streaming gives up the one thing collecting the list gave for free: knowing
+  # it was empty before fzf was handed it. fzf's own "no match" status cannot
+  # stand in, because a query the person typed that matches nothing returns that
+  # too. So the paths are teed past on their way to fzf and the file is what is
+  # asked afterwards. --exit-0 is what keeps an empty list from opening a picker
+  # on nothing first: with no match for the initial (empty) query, fzf exits
+  # rather than starting.
+  listed=$(mktemp) || {
+    note "Error: could not create a temporary file"
+    exit 1
+  }
+  trap 'rm -f "$listed"' EXIT
+
+  selected=$(repo_paths | tee "$listed" | fzf --cycle --exit-0 --prompt "Repo > ")
+
+  if [ ! -s "$listed" ]; then
+    note "No git repositories found under $root"
+    exit 1
+  fi
 
   # Backing out is not a failure: say nothing and succeed.
   [ -n "$selected" ] || exit 0
 
   printf '%s\n' "$selected"
   exit 0
+fi
+
+# -brief and -filter both have to open every repository before anything can be
+# shown -- one to decorate the rows, the other to know which rows there are --
+# so this half collects the list rather than streaming it.
+dirs=$(repo_paths)
+
+if [ -z "$dirs" ]; then
+  note "No git repositories found under $root"
+  exit 1
 fi
 
 # Inspected 8 at a time: under -fetch each job opens a remote connection, and
