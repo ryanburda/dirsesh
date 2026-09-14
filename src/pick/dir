@@ -1,12 +1,40 @@
 #!/usr/bin/env bash
 #
-# pick-dir: print a directory under $HOME, chosen with fzf.
+# pick-dir: print a directory under $HOME -- or under $DIRSESH_PICK_DIR_ROOT,
+# if that is set -- chosen with fzf.
 #
 # Usage: dirsesh pick-dir
 #
-# No git involved and no depth limit: this is the picker for when the thing you
-# want a session at is a plain directory. It is also the slowest to appear on a
-# large $HOME, since it walks the whole tree.
+# No git involved, and no depth limit unless $DIRSESH_PICK_DIR_MAX_DEPTH sets
+# one: this is the picker for when the thing you want a session at is a plain
+# directory. It is also the slowest to appear on a large root, since it walks
+# the whole tree. Hidden directories are left out, the root itself aside.
+#
+# DIRSESH_PICK_DIR_ROOT
+#
+# Where the walk starts. $HOME unless this names somewhere else -- ~/code, a
+# notes directory, anywhere you keep more than one directory worth sitting in:
+#
+#   DIRSESH_PICK_DIR_ROOT="$HOME/code" dirsesh pick-dir
+#
+# Export it from the file your shell reads for *every* shell rather than only
+# interactive ones -- ~/.zshenv for zsh, ~/.bash_profile or ~/.profile for
+# bash -- because a tmux popup runs `$SHELL -c`, which reads neither ~/.zshrc
+# nor ~/.bashrc. The same goes for the one below.
+#
+# DIRSESH_PICK_DIR_MAX_DEPTH
+#
+# How far down from the root to walk. 0 -- no limit, the whole tree -- unless
+# this says otherwise:
+#
+#   DIRSESH_PICK_DIR_MAX_DEPTH=3 dirsesh pick-dir
+#
+# Counted in directories below the root: 1 is the root and what sits directly
+# in it, 2 adds their children. This is the one knob that makes pick-dir quick
+# on a large root, since the walk is the whole of the wait.
+#
+# It is counted one level shallower than DIRSESH_PICK_REPO_MAX_DEPTH, which
+# has to reach a repository's .git rather than the repository itself.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
@@ -22,7 +50,46 @@ if ! command -v fzf > /dev/null 2>&1; then
   exit 1
 fi
 
-selected=$(find "$HOME" -name ".*" -prune -o -type d -print | fzf --cycle --prompt "Directory > ")
+# Where the walk starts: $HOME, or DIRSESH_PICK_DIR_ROOT when it is set.
+# Resolved with cd/pwd rather than taken as written, so a relative path or a
+# trailing slash still yields paths `dirsesh at` can be handed -- and so a
+# value naming nothing is an error here rather than an empty picker. CDPATH is
+# cleared because a match in it would both cd elsewhere and print the
+# directory onto the stdout this is being read from.
+root="${DIRSESH_PICK_DIR_ROOT:-$HOME}"
+if ! root=$(CDPATH= cd -- "$root" 2> /dev/null && pwd); then
+  if [ -n "$DIRSESH_PICK_DIR_ROOT" ]; then
+    note "Error: DIRSESH_PICK_DIR_ROOT is not a directory: '$DIRSESH_PICK_DIR_ROOT'"
+  else
+    note "Error: \$HOME is not a directory: '$HOME'"
+  fi
+  exit 1
+fi
+
+# How far down from the root to walk, as find's -maxdepth, counted in
+# directories below the root.
+#
+# 0 means no limit, and is both the default -- walking the whole tree is what
+# this picker has always done -- and the reason this is an array rather than a
+# number: find has no -maxdepth value for "as deep as it goes", so the option
+# is left off the command line entirely instead.
+depth="${DIRSESH_PICK_DIR_MAX_DEPTH:-0}"
+if ! [[ "$depth" =~ ^[0-9]{1,4}$ ]]; then
+  note "Error: DIRSESH_PICK_DIR_MAX_DEPTH must be a whole number from 0 to 9999, 0 for no limit: '$DIRSESH_PICK_DIR_MAX_DEPTH'"
+  exit 1
+fi
+
+maxdepth=(-maxdepth "$depth")
+[ "$depth" -eq 0 ] && maxdepth=()
+
+# The prune keeps hidden directories -- caches like ~/.cache and ~/.npm, but
+# also ~/.config, ~/.ssh, etc. -- out of the walk entirely. `! -path "$root"`
+# exempts the starting point from it, because a root that is itself hidden
+# would otherwise be pruned before the walk began and the picker would open on
+# nothing: DIRSESH_PICK_DIR_ROOT="$HOME/.config" is a reasonable thing to want.
+selected=$(find "$root" "${maxdepth[@]}" \
+  \( ! -path "$root" -a -name '.*' \) -prune -o -type d -print \
+  | fzf --cycle --prompt "Directory > ")
 
 # Backing out is not a failure: say nothing and succeed.
 [ -n "$selected" ] || exit 0
