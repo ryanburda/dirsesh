@@ -291,34 +291,34 @@ repo_paths() {
   # because .git is not always a directory: a linked worktree, and a checkout of
   # a bare clone, both carry a .git *file* holding a gitdir: line.
   #
-  # The sort is the one place output is held back, and it is held back by the
-  # walk alone -- no git has run at that point, and the walk is milliseconds.
-  # Sorting the candidates rather than the answers is what lets the checks below
-  # print as they go and still print in order: filtering a sorted list leaves it
-  # sorted.
+  # The sort runs on the candidates, not the answers, and is the one place
+  # output is held back before the checks below start -- no git has run yet,
+  # so it is only the walk that is waited on, and the walk is milliseconds.
+  #
+  # A bare repository has no working tree to open a session in, and the
+  # container of a `git clone --bare` layout carries a .git of its own -- a
+  # file holding `gitdir: ./.bare`, or the bare repository sitting at .git
+  # itself -- so the walk finds it looking like any other repo. Only git can
+  # tell the two apart. The worktrees checked out beside it are found on their
+  # own, and are what you actually want to sit in. This drops a stray
+  # directory called .git that is no repository at all in the same breath:
+  # rev-parse refuses it just the same.
+  #
+  # Checked 8 at a time rather than one at a time: each rev-parse costs about
+  # two milliseconds, which is nothing until it is hundreds of repositories in
+  # a row, and that wait is spent before the picker shows anything either way
+  # -- fzf is not opened on the first path until this whole function returns.
+  # Running the checks in parallel scrambles the order they finish in, but
+  # nothing downstream depends on that order: the -brief/-filter callers sort
+  # the decorated rows themselves once every repository is inspected, and fzf
+  # does not care what order candidates arrive in.
   find "$root" "${maxdepth[@]}" \( -name .git -o -name node_modules \) -prune -print -o \( ! -path "$root" -a -name '.*' \) -prune 2>/dev/null \
     | grep '/\.git$' \
     | sed 's#/\.git$##' \
     | LC_ALL=C sort -u \
-    | while IFS= read -r dir; do
-        # A bare repository has no working tree to open a session in, and the
-        # container of a `git clone --bare` layout carries a .git of its own --
-        # a file holding `gitdir: ./.bare`, or the bare repository sitting at
-        # .git itself -- so the walk finds it looking like any other repo. Only
-        # git can tell the two apart. The worktrees checked out beside it are
-        # found on their own, and are what you actually want to sit in.
-        #
-        # This drops a stray directory called .git that is no repository at all
-        # in the same breath: rev-parse refuses it just the same.
-        #
-        # One at a time, not 8 at a time: each of these costs about two
-        # milliseconds, so running them in parallel would shorten the wait for
-        # the whole list -- but it would also finish them out of order, and the
-        # order is what the list has to be collected and sorted to recover. A
-        # picker that opens at once and fills in beats one that opens complete.
-        [ "$(git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || continue
-        printf '%s\n' "$dir"
-      done
+    | tr '\n' '\0' \
+    | xargs -0 -P 8 -n 1 \
+            bash -c '[ "$(git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] && printf "%s\n" "$1" || true' _
 }
 
 # Nothing to show and nothing to leave out: the paths are the whole answer, and
