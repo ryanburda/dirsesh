@@ -24,6 +24,10 @@
 # next to the fuzzy pickers -- it is the case where you already know exactly
 # where you are going.
 #
+# Inside tmux the character is asked for with `command-prompt -1`, which hands
+# back whatever key was pressed: backing out of that prompt with escape does
+# nothing and succeeds, the way backing out of `bookmark-pick` does.
+#
 # `bookmark-get` and `bookmark-pick` print a directory on stdout and nothing
 # else, so they compose with dirsesh exactly as the pickers do:
 #
@@ -132,6 +136,26 @@ check_bookmark_char() {
   fi
 }
 
+is_cancelled() {
+  # Succeed if $1 is a prompt saying it was backed out of rather than
+  # answered. tmux's `command-prompt -1`, which is how the character is asked
+  # for (see docs/bookmark.md), takes exactly one key and hands back whatever
+  # was pressed -- escape, ctrl-c and ctrl-g included -- so backing out arrives
+  # here as a control character rather than as no answer at all; a prompt
+  # answered with nothing arrives as the empty string.
+  #
+  # Neither is a mistake worth an error: backing out declines, the way backing
+  # out of `bookmark-pick` does, so the verbs below do nothing and succeed.
+  #
+  # Args:
+  #   $1: char: the character the prompt answered with
+  case "$1" in
+    "" | [[:cntrl:]]) return 0 ;;
+  esac
+
+  return 1
+}
+
 read_bookmarks() {
   # Emit one "char<TAB>directory" line per bookmark, sorted by character.
   #
@@ -232,6 +256,20 @@ bookmark_set() {
   #   $2: path: directory to bookmark (default: the current directory)
   local char="$1" path="${2:-$PWD}"
 
+  # The character is not asked for here: inside tmux a key binding asks with
+  # command-prompt -1 and passes the answer in (see docs/bookmark.md), which
+  # is the only way it was ever reached. Backing out of that prompt is not an
+  # answer, and nothing is bookmarked -- checked before the path is, so that
+  # backing out is a no-op whatever directory the prompt was opened from.
+  if [ $# -eq 0 ]; then
+    notify "Error: 'bookmark-set' needs a character to bookmark ${path/#"$HOME"/\~} at"
+    exit 1
+  fi
+
+  is_cancelled "$char" && exit 0
+
+  check_bookmark_char "$char"
+
   path="${path/#\~/$HOME}"
 
   if [ ! -d "$path" ]; then
@@ -256,16 +294,6 @@ bookmark_set() {
       ;;
   esac
 
-  # The character is not asked for here: inside tmux a key binding asks with
-  # command-prompt -1 and passes the answer in (see docs/bookmark.md), which
-  # is the only way it was ever reached.
-  if [ -z "$char" ]; then
-    notify "Error: 'bookmark-set' needs a character to bookmark ${path/#"$HOME"/\~} at"
-    exit 1
-  fi
-
-  check_bookmark_char "$char"
-
   # Written to a temp file and moved into place, so an interrupted write
   # leaves the old bookmark rather than half a file.
   local tmp="$BOOKMARKS_DIR/.$char.tmp"
@@ -285,10 +313,12 @@ bookmark_remove() {
   #   $1: char: the bookmark character to remove
   local char="$1"
 
-  if [ -z "$char" ]; then
+  if [ $# -eq 0 ]; then
     notify "Error: 'bookmark-remove' needs a character"
     exit 1
   fi
+
+  is_cancelled "$char" && exit 0
 
   check_bookmark_char "$char"
 
@@ -317,10 +347,15 @@ bookmark_get() {
   #   $1: char: the bookmark character to look up
   local char="$1"
 
-  if [ -z "$char" ]; then
+  if [ $# -eq 0 ]; then
     notify "Error: 'bookmark-get' needs a character"
     exit 1
   fi
+
+  # Backing out of the prompt prints nothing and succeeds, so
+  # `dirsesh at "$(dirsesh bookmark-get '<key>')"` opens nothing rather than
+  # erroring -- the same way backing out of `bookmark-pick` behaves.
+  is_cancelled "$char" && exit 0
 
   check_bookmark_char "$char"
 
@@ -492,13 +527,13 @@ shift
 
 case "$command" in
   set)
-    bookmark_set "$1" "$2"
+    bookmark_set "$@"
     ;;
   remove)
-    bookmark_remove "$1"
+    bookmark_remove "$@"
     ;;
   get)
-    bookmark_get "$1"
+    bookmark_get "$@"
     ;;
   pick)
     if [ $# -gt 0 ]; then

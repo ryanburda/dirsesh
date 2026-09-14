@@ -147,13 +147,24 @@ which reaches all of them by a single keypress:
 ```tmux
 bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"dirsesh bookmark-set '%%%'\""
 bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh bookmark-remove '%%%'\""
-bind-key \' command-prompt -1 -p "Go to bookmark:" "run-shell -b \"dirsesh at \$(dirsesh bookmark-get '%%%')\""
+bind-key \' command-prompt -1 -p "Go to bookmark:" 'run-shell -b "dirsesh at \"$(dirsesh bookmark-get \"%%%\")\""'
 bind-key b popup -E 'dirsesh at "$(dirsesh bookmark-pick)"'
 ```
 
 These ask in tmux's status line, so they need no popup: `-1` takes exactly one key and `%%%`
 substitutes it with quotation marks escaped. `'` and `;` are the two keys that cannot be
 answered with — `;` is tmux's own command separator — so do not bookmark at those.
+
+Escape backs out of the prompt. `-1` hands back whatever key was pressed, escape included, so
+backing out reaches `bookmark-set`, `bookmark-remove` and `bookmark-get` as a character no
+bookmark can be keyed by: they take it for what it is, do nothing and exit 0, the same way
+`bookmark-pick` declines. Nothing is set, removed or opened, and no error is shown.
+
+The substitution in the last binding is quoted — `at \"$(...)\"` — for the same reason it is
+everywhere else: unquoted, the empty output of a `bookmark-get` you backed out of would vanish
+before `dirsesh at` saw it, and `at` would report a missing directory instead of doing nothing.
+Its outer single quotes are what keep those inner ones readable; tmux takes a single-quoted
+command as written.
 
 The last two lines send the directory to `dirsesh`, which opens a tmux session there. Anything
 that takes a path works the same way; bookmarks themselves do not know what tmux is, apart from
