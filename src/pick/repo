@@ -285,23 +285,33 @@ git_repo_row() {
 # Matching .git by name rather than asking each directory whether it has one,
 # because .git is not always a directory: a linked worktree, and a checkout of
 # a bare clone, both carry a .git *file* holding a gitdir: line.
+#
+# A bare repository has no working tree to open a session in, and the container
+# of a `git clone --bare` layout carries a .git of its own -- a file holding
+# `gitdir: ./.bare`, or the bare repository sitting at .git itself -- so the
+# walk finds it looking like any other repo. Only git can tell the two apart.
+# The worktrees checked out beside it are found on their own, and are what you
+# actually want to sit in. Asking git also drops a stray directory called .git
+# that is no repository at all, in the same breath.
+#
+# Asked 8 at a time, for the same reason the inspection below is: one rev-parse
+# costs about two milliseconds, which is nothing until it is the whole list in
+# a row. A bare checkout puts two candidates on the list per project -- the
+# container and each worktree beside it -- so the list is longer than the
+# number of repositories that come out of it, and a picker opens on a keypress.
+# NUL separation so repository paths with spaces survive. `|| true` because a
+# candidate that is not a working tree is the ordinary case, not a failure.
+#
+# The sort comes after rather than before, since running the checks in parallel
+# is what scrambles the order they finish in.
 dirs=$(find "$root" "${maxdepth[@]}" \( -name .git -o -name node_modules \) -prune -print -o \( ! -path "$root" -a -name '.*' \) -prune 2>/dev/null \
   | grep '/\.git$' \
   | sed 's#/\.git$##' \
-  | LC_ALL=C sort -u \
-  | while IFS= read -r dir; do
-      # A bare repository has no working tree to open a session in, and the
-      # container of a `git clone --bare` layout carries a .git of its own --
-      # a file holding `gitdir: ./.bare`, or the bare repository sitting at
-      # .git itself -- so the walk finds it looking like any other repo. Only
-      # git can tell the two apart. The worktrees checked out beside it are
-      # found on their own, and are what you actually want to sit in.
-      #
-      # This drops a stray directory called .git that is no repository at all
-      # in the same breath: rev-parse refuses it just the same.
-      [ "$(git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || continue
-      printf '%s\n' "$dir"
-    done)
+  | tr '\n' '\0' \
+  | xargs -0 -P 8 -n 1 \
+          bash -c '[ "$(git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] \
+                     && printf "%s\n" "$1" || true' _ \
+  | LC_ALL=C sort -u)
 
 if [ -z "$dirs" ]; then
   note "No git repositories found under $root"
