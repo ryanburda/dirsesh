@@ -420,7 +420,7 @@ bookmark_status() {
   #       (default: the session tmux reports as current)
   #   -s, --style: tmux style for the other sessions' characters
   #   -c, --current-style: tmux style for the current session's character
-  local style="dim" current_style="fg=yellow,bold" current="" current_given=""
+  local style="dim" current_style="bold" current="" current_given=""
 
   # Styles are given without their #[] wrapper, so a status line format
   # holding one does not have to escape it.
