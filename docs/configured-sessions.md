@@ -15,25 +15,25 @@ execs it), which is why a configuration can be written in any language, or be a 
 
 | Verb | Called when | What it should do |
 | --- | --- | --- |
-| `pattern` | resolving which configuration claims a directory | print an ERE of the directories it claims, on stdout |
+| `glob` | resolving which configuration claims a directory | print a glob of the directories it claims, on stdout |
 | `name` | naming the session, before it exists | print the session name for the directory given as `$2`, on stdout |
 | `start` | after `dirsesh at` has created the session | build the layout |
 | `kill` | asynchronously, when the session closes ([`dirsesh init`](#why-one-hook-dirsesh-init)) | tear down what `start` built |
 
 Three rules make it work in every language:
 
-- **Only `pattern` and `name` treat stdout as an answer.** For `start` and `kill`, stdout is the
+- **Only `glob` and `name` treat stdout as an answer.** For `start` and `kill`, stdout is the
   [session log](#logging). A stray `echo` under `name` corrupts the name; under `start` it is
   just a log line.
 - **A verb the program does not handle must exit 0.** A `case` with no matching branch falls
-  through and exits clean, which is exactly right. Only `pattern` is really required.
-- **Nothing a configuration answers can fail the session.** A `pattern` that fails or prints
+  through and exits clean, which is exactly right. Only `glob` is really required.
+- **Nothing a configuration answers can fail the session.** A `glob` that fails or prints
   nothing simply does not match. A `name` that fails or prints nothing falls back to the
   default derivation. `kill` is best-effort: it runs after tmux has already closed the
   session, and nothing waits for it.
 
 Environment: `ROOT` (the claimed directory) is set for `name`, `start` and `kill`, but not for
-`pattern`, which is asked before a directory is settled on. `SESSION` (the session name) is set
+`glob`, which is asked before a directory is settled on. `SESSION` (the session name) is set
 for `start` and `kill`, but not for `name`, which is the verb that decides it.
 
 ## The configuration file
@@ -54,14 +54,14 @@ the whole path identifies it:
 
 dirsesh owns the session's lifecycle: `dirsesh at` names the session, creates it and runs your `start`
 in it, and a [`session-closed` hook](#why-one-hook-dirsesh-init) runs your `kill` after tmux closes
-it. Everything beyond `pattern` is optional and describes what you want *beyond* a plain
+it. Everything beyond `glob` is optional and describes what you want *beyond* a plain
 session named after its directory. The smallest useful configuration:
 
 ```bash
 #!/bin/bash
 # ~/.config/dirsesh/notes.sh  ->  claims ~/notes, session named "notes"
 case "$1" in
-  pattern) printf '%s\n' "^$HOME/notes$" ;;
+  glob) printf '%s\n' "$HOME/notes" ;;
 esac
 ```
 
@@ -71,7 +71,7 @@ answers are [sanitized](#naming-the-session) rather than refused; a name you giv
 (typed directly, or at its prompt) is refused, since it is not dirsesh's to rewrite.
 
 **NOTE:** The program runs once per verb, and dirsesh asks every configuration for its
-`pattern`, so keep the top level cheap: anything expensive there is paid on every `dirsesh at`.
+`glob`, so keep the top level cheap: anything expensive there is paid on every `dirsesh at`.
 
 ## Pane addressing
 
@@ -82,8 +82,8 @@ into the panes that result:
 ```bash
 #!/bin/bash
 case "$1" in
-  pattern)
-    printf '%s\n' "^$HOME/code/myproject$"
+  glob)
+    printf '%s\n' "$HOME/code/myproject"
     ;;
   start)
     code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
@@ -113,8 +113,8 @@ window:
 # ~/.config/dirsesh/myproject.sh   (chmod +x)
 
 case "$1" in
-  pattern)
-    printf '%s\n' "^$HOME/projects/myproject$"
+  glob)
+    printf '%s\n' "$HOME/projects/myproject"
     ;;
 
   start)
@@ -144,8 +144,8 @@ A `kill` branch tears down what `start` brought up:
 #!/bin/bash
 
 case "$1" in
-  pattern)
-    printf '%s\n' "^$HOME/projects/myproject$"
+  glob)
+    printf '%s\n' "$HOME/projects/myproject"
     ;;
 
   start)
@@ -186,8 +186,8 @@ Python:
 set -l verb "$argv[1]"
 
 switch "$verb"
-    case pattern
-        printf '%s\n' "^$HOME/notes$"
+    case glob
+        printf '%s\n' "$HOME/notes"
 
     case name
         printf '%s\n' notes
@@ -222,8 +222,8 @@ def tmux(*args):
     ).stdout.strip()
 
 
-def pattern():
-    print("^" + os.path.expanduser("~/notes") + "$")
+def glob():
+    print(os.path.expanduser("~/notes"))
 
 
 def name(path):
@@ -236,7 +236,7 @@ def start(path):
     tmux("send-keys", "-t", code, "nvim .", "Enter")
 
 
-VERBS = {"pattern": lambda _: pattern(), "name": name, "start": start}
+VERBS = {"glob": lambda _: glob(), "name": name, "start": start}
 
 if __name__ == "__main__":
     verb = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -244,9 +244,10 @@ if __name__ == "__main__":
     VERBS.get(verb, lambda _: None)(path)
 ```
 
-**NOTE:** A `pattern` is matched by dirsesh with `grep -E`, so it must be a POSIX extended regular
-expression whatever language printed it. Python's `re`-only syntax (`\d`, lookahead, non-greedy
-`*?`) will not work.
+**NOTE:** A `glob` is matched by dirsesh, using [bash's pattern matching with `extglob`
+on](#claiming-directories). The shell that printed it never expands it, so `~` stays a literal
+tilde and nothing is matched against the filesystem: a configuration in another language
+should print the same string a bash one would.
 
 ## Naming the session
 
@@ -298,46 +299,67 @@ what `name` returned as the default, so pressing enter accepts it.
 
 ## Claiming directories
 
-`pattern` is a [POSIX extended regular expression](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap09.html#tag_09_04)
-tested against the resolved directory, so one file can claim a whole tree ("every
-repository under `~/code/work` gets this layout") without a file per repository.
+`glob` is a glob tested against the whole resolved directory path, so one file can claim a
+whole tree ("every repository under `~/code/work` gets this layout") without a file per
+repository.
 
-The match is unanchored, so anchor it yourself when you mean it:
+It is matched by bash, with `extglob` on, so `man bash` under *Pattern Matching* is the
+reference for all of it:
 
-| pattern | claims |
+| In a glob | matches |
 | --- | --- |
-| `^$HOME/code/work/[^/]+$` | the directories directly under `~/code/work`, nothing deeper |
-| `^$HOME/code/work/` | everything beneath `~/code/work`, at any depth (not `~/code/work` itself) |
-| `^$HOME/code/work/myproject$` | exactly one directory |
+| `*` | any characters, `/` included |
+| `?` | any single character |
+| `[abc]` | one of those characters; `[!abc]` for none of them, `[0-9]` for a range |
+| `+([!/])` | one path segment: one or more characters that are not `/` |
+| `@(api\|web)` | either of those, in full |
+| `!(scratch)` | anything but that |
+| `\*` | a literal `*`; likewise `\?`, `\[` and `\\` |
 
-Being a regex rather than a glob is easy to forget. `~/code/*` matches nothing quoted (`~` does
-not expand) and the wrong thing unquoted (`*` quantifies the `/`, also claiming `~/codegen`).
-Use `$HOME` and anchor with `^`.
+The match is anchored at both ends, so a glob claims the paths it spells out and nothing
+around them:
 
-A directory no `pattern` claims gets a bare session and runs nothing.
+| glob | claims |
+| --- | --- |
+| `$HOME/code/work` | exactly one directory |
+| `$HOME/code/work/*` | everything beneath `~/code/work`, at any depth (not `~/code/work` itself) |
+| `$HOME/code/work/+([!/])` | the directories directly under `~/code/work`, nothing deeper |
+
+**`*` crosses `/`.** That is the one rule to keep in mind, and it is why the second and third
+rows differ: `$HOME/code/work/*` claims `~/code/work/repo/vendor/lib` as readily as
+`~/code/work/repo`. `+([!/])` is how to say "one segment and no deeper" when that is what you
+mean.
+
+Write `$HOME` rather than `~`: a glob is never expanded by a shell, so a leading `~` is a
+literal tilde and claims nothing. Nothing else needs escaping -- a glob is not a regex, so a
+`.` or a `+` in a path is just itself.
+
+A directory no `glob` claims gets a bare session and runs nothing.
 
 ### Precedence
 
-Two patterns can claim the same directory, and only one configuration can name and build the
-session. **The longest pattern wins.** Length is a proxy for specificity, and it is the length
-of the *pattern*, not the text it matched, so a catch-all `.*`, which matches the entire path,
-still loses to everything, being the shortest useful pattern there is:
+Two globs can claim the same directory, and only one configuration can name and build the
+session. **The longest glob wins.** Length is a proxy for specificity, and it is the length
+of the *glob*, not the text it matched, so a catch-all `*`, which matches the entire path,
+still loses to everything, being the shortest glob there is:
 
 ```bash
 #!/bin/bash
 # ~/.config/dirsesh/default.sh   (chmod +x), a default for everything
 case "$1" in
-  pattern) printf '%s\n' ".*" ;;
+  glob) printf '%s\n' "*" ;;
 esac
 ```
 
-| Path | `^$HOME/code/work/[^/]+$` | `^$HOME/code/` | `.*` | Winner |
+| Path | `$HOME/code/work/*` | `$HOME/code/*` | `*` | Winner |
 | --- | --- | --- | --- | --- |
-| `~/code/work/repo` | 26 | 16 | 2 | `^$HOME/code/work/[^/]+$` |
-| `~/code/scratch` | - | 16 | 2 | `^$HOME/code/` |
-| `~/notes` | - | - | 2 | `.*` |
+| `~/code/work/repo` | 21 | 16 | 1 | `$HOME/code/work/*` |
+| `~/code/scratch` | - | 16 | 1 | `$HOME/code/*` |
+| `~/notes` | - | - | 1 | `*` |
 
-Two patterns of the same length tie-break by byte order (`LC_ALL=C`) on the file path, first
+(The lengths are of the expanded glob: `$HOME` is `/home/you` by the time dirsesh sees it.)
+
+Two globs of the same length tie-break by byte order (`LC_ALL=C`) on the file path, first
 wins, which is deterministic and independent of your locale.
 
 The configurations that lose are simply ignored. If a specific configuration should build on a
@@ -357,8 +379,8 @@ had claimed the directory itself:
     ;;
 ```
 
-**NOTE:** An empty `pattern` does not mean "match everything": it reads as declaring no
-pattern, and the file is skipped. Print `.*`.
+**NOTE:** An empty `glob` does not mean "match everything": it reads as declaring no
+glob, and the file is skipped. Print `*`.
 
 ### Seeing the ranking (`dirsesh match`)
 
@@ -367,9 +389,9 @@ answers it for a directory (default: the current one):
 
 ```
 $ dirsesh match ~/code/work/repo
-26	/home/you/.config/dirsesh/work.sh
+21	/home/you/.config/dirsesh/work.sh
 16	/home/you/.config/dirsesh/code.sh
-2	/home/you/.config/dirsesh/default.sh
+1	/home/you/.config/dirsesh/default.sh
 ```
 
 One `<score>\t<file>` per claiming configuration, best first. The first line is the
@@ -377,9 +399,9 @@ configuration that would name and build a session at that path. Nothing on stdou
 nothing claims the directory; that exits non-zero, so
 `dirsesh match "$dir" >/dev/null` is a usable test.
 
-It is also the fastest way to find a pattern that is not claiming what you think. For example,
-`^$HOME/code/project/` has a trailing slash, so it claims everything *under* `~/code/project`
-but not that directory itself.
+It is also the fastest way to find a glob that is not claiming what you think. For example,
+`$HOME/code/project/*` has something after the slash to match, so it claims everything
+*under* `~/code/project` but not that directory itself.
 
 ## Beyond tmux commands
 
@@ -456,7 +478,7 @@ tmux new-session -c ~/code/myproject    # an ordinary tmux session, start to fin
   environment can be read from that hook, which is why the record in
   `${XDG_STATE_HOME:-~/.local/state}/dirsesh/sessions/` holds the directory as well as marking the
   session.
-- **The configuration is resolved again at close.** Editing a `pattern` between opening a
+- **The configuration is resolved again at close.** Editing a `glob` between opening a
   session and closing it can change which configuration tears it down, or leave it with none.
 - **`tmux kill-server` is not a reliable teardown.** tmux exits without closing its sessions
   one by one, so most of them never fire `session-closed`. Kill sessions, not the server, when

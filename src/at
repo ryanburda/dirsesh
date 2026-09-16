@@ -18,9 +18,14 @@
 #   dirsesh init           Install the session-closed hook that cleans up configured sessions
 #
 # A configuration is an executable program under
-# ${XDG_CONFIG_HOME:-~/.config}/dirsesh that claims a directory with `pattern`,
+# ${XDG_CONFIG_HOME:-~/.config}/dirsesh that claims a directory with `glob`,
 # then names (`name`), builds (`start`) and tears down (`kill`) the session
 # there. See docs/configured-sessions.md.
+
+# Configurations claim directories with a glob, and extglob is what lets one
+# say things a plain glob cannot: `+([!/])` for "one path segment, no deeper",
+# `@(api|web)` for a choice, `!(scratch)` for an exclusion.
+shopt -s extglob
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dirsesh"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh"
@@ -235,9 +240,9 @@ config_name_for_file() {
 }
 
 run_config() {
-  # Run a configuration with a verb: pattern, name, start or kill. The
+  # Run a configuration with a verb: glob, name, start or kill. The
   # contract is argv in, stdout and exit status out; dirsesh never looks inside
-  # the file. A verb the program does not handle must exit 0. Only `pattern`
+  # the file. A verb the program does not handle must exit 0. Only `glob`
   # and `name` treat stdout as an answer; for `start` and `kill` it is the
   # session log, and callers redirect it there.
   #
@@ -246,7 +251,7 @@ run_config() {
   #
   # Args:
   #   $1: file: path to the configuration
-  #   $2: verb: one of pattern, name, start, kill
+  #   $2: verb: one of glob, name, start, kill
   #   $@: any further arguments the verb takes
   local file="$1" verb="$2"
   shift 2
@@ -254,33 +259,35 @@ run_config() {
 }
 
 rank_configs_for_root() {
-  # Emit "<score>\t<file>" for every configuration whose pattern claims the
+  # Emit "<score>\t<file>" for every configuration whose glob claims the
   # directory, best first; nothing if none does.
   #
-  # The score is the length of the pattern, longest first: a proxy for
-  # specificity measured on the pattern rather than the matched text, so a
-  # catch-all `.*` always sorts last. Ties break on LC_ALL=C file path order.
+  # The score is the length of the glob, longest first: a proxy for
+  # specificity measured on the glob rather than the matched text, so a
+  # catch-all `*` always sorts last. Ties break on LC_ALL=C file path order.
   #
-  # grep -Eq rather than [[ =~ ]] so a pattern means the same thing whatever
-  # language printed it. A configuration that fails, prints nothing, or
-  # prints an invalid regex simply does not match.
+  # The glob is left unquoted so [[ matches with it rather than against it,
+  # and it is matched whole, so a configuration claims the paths its glob
+  # spells out and nothing around them. A configuration that fails or prints
+  # nothing does not match.
   #
   # Args:
   #   $1: path: the resolved directory a session would be rooted at
   local path="$1"
 
-  local file pattern
+  local file glob
   while IFS= read -r file; do
-    pattern=$(
+    glob=$(
       export SESSION=""
       unset ROOT
-      run_config "$file" pattern 2>/dev/null
+      run_config "$file" glob 2>/dev/null
     ) || continue
 
-    [ -n "$pattern" ] || continue
+    [ -n "$glob" ] || continue
 
-    if printf '%s' "$path" | grep -Eq -- "$pattern" 2>/dev/null; then
-      printf '%s\t%s\n' "${#pattern}" "$file"
+    # shellcheck disable=SC2053  # unquoted on purpose: $glob is the pattern
+    if [[ "$path" == $glob ]]; then
+      printf '%s\t%s\n' "${#glob}" "$file"
     fi
   done < <(config_files) | LC_ALL=C sort -t$'\t' -k1,1nr -k2,2
 }
@@ -624,7 +631,7 @@ session_at() {
     exit 0
   fi
 
-  # A configuration may claim the path with `pattern`, naming the session
+  # A configuration may claim the path with `glob`, naming the session
   # (`name`) and building it (`start`). -noconfig opts out of both.
   local matching_file=""
   if [ -z "$no_config" ]; then
