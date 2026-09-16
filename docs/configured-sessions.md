@@ -206,9 +206,12 @@ was picked at random, a temporary directory to remove, a container name.
 ```
 
 The directory is yours apart from `.dirsesh_path`, dirsesh's own record of the directory the
-session was started at -- the file that tells the [`session-closed`
-hook](#why-one-hook-dirsesh-init) a `kill` is owed here at all. It is written after `start`
-returns, so a `start` that lists `$STATE_DIR` sees only its own files.
+session was started at. It is how `dirsesh at` recognises that this directory already has a
+session, and what tells the [`session-closed` hook](#why-one-hook-dirsesh-init) which directory
+a closing session belongs to. Every session `dirsesh at` builds has one, configured or not; it
+is written before `start` runs, so a `start` that lists `$STATE_DIR` sees it sitting there.
+Leave it alone. A session built with `-noconfig` carries a `.dirsesh_no_config` marker beside
+it, which is what keeps a `kill` from running against a session that never had a `start`.
 
 dirsesh removes the whole directory once `kill` returns, so there is nothing to clean up by
 hand. Two things follow from that:
@@ -499,7 +502,9 @@ all of dirsesh's setup.)
 The asymmetry is the design, not an accident. **Creating a session has a natural opt-in point;
 destroying one does not.** Something always asks for a session, and `dirsesh at` is that request.
 A plain `tmux new-session` at a claimed directory is left alone, because it is a different
-request and dirsesh has no business rewriting it. A session created via `dirsesh` should always be torn
+request and dirsesh has no business rewriting it -- and it stays invisible to `dirsesh at`
+afterwards, so asking for that directory again gets a dirsesh session of its own rather than
+the one you deliberately made by hand. A session created via `dirsesh` should always be torn
 down by `dirsesh`. This should happen regardless of how it is killed (via `tmux kill-session` or
 from the last pane's shell exiting). There is no one command to hang cleanup off, so dirsesh hangs
 it off the event instead.
@@ -509,16 +514,24 @@ it off the event instead.
 `session-closed` fires for every session tmux closes. Almost all of them stop at the first
 check: was there a cleanup record for this session?
 
-Only `dirsesh at` writes one, and only after a configuration's `start` has actually run. A session
-dirsesh did not build (an unclaimed directory, `dirsesh at -noconfig`, a bare `tmux new-session`) has no
-record, and closes exactly as it would on a server with no dirsesh on it. The hook is installed
-globally; what it acts on is opt-in.
+Only `dirsesh at` writes one. A session dirsesh did not build -- a bare `tmux new-session` --
+has no record, and closes exactly as it would on a server with no dirsesh on it. The hook is
+installed globally; what it acts on is opt-in.
+
+Sessions dirsesh did build all carry a record, because it is what identifies them, but a record
+alone does not mean a `kill` is owed. `-noconfig` leaves a `.dirsesh_no_config` marker beside
+it, and a session at a directory no configuration claims has nothing to run; both close with
+their state directory simply removed.
 
 ```bash
-dirsesh at ~/code/myproject             # record written; `kill` runs when it closes
-dirsesh at ~/code/myproject -noconfig   # no configuration applied, no record, no `kill`
+dirsesh at ~/code/myproject             # claimed directory: `kill` runs when it closes
+dirsesh at ~/code/myproject -noconfig   # no configuration applied, and none run at close
 tmux new-session -c ~/code/myproject    # an ordinary tmux session, start to finish
 ```
+
+`-noconfig` declines a configuration, not an identity. The session is still found by
+`dirsesh at ~/code/myproject` afterwards and switched to, like any other -- the flag decides how
+a session is built, and only matters the once.
 
 ### Consequences worth knowing
 
@@ -528,15 +541,24 @@ tmux new-session -c ~/code/myproject    # an ordinary tmux session, start to fin
   other hooks on that event alone.
 - **Without `dirsesh init`, `start` still runs and `kill` never does.** `dirsesh at` says so when it
   builds a session whose configuration it cannot arrange to clean up, and builds it anyway.
-- **A session's options are gone by `session-closed`.** Neither `@dirsesh_path` nor the session
-  environment can be read from that hook, which is why the `.dirsesh_path` record in the
-  session's [state directory](#passing-state-from-start-to-kill) holds the directory as well as
-  marking the session.
+- **A session's options and environment are gone by `session-closed`.** Nothing set on the
+  session can be read from that hook, which is why the directory a session was started at
+  lives in the `.dirsesh_path` record in its [state
+  directory](#passing-state-from-start-to-kill) instead.
+- **A `start` that aborts still gets its `kill`.** The record is written before `start` runs, so
+  it says dirsesh built the session, not that the configuration finished laying it out. Write
+  `kill` to cope with a `start` that got part of the way -- which is the case that most needs
+  cleaning up after.
 - **The configuration is resolved again at close.** Editing a `glob` between opening a
   session and closing it can change which configuration tears it down, or leave it with none.
-- **`tmux kill-server` is not a reliable teardown.** tmux exits without closing its sessions
-  one by one, so most of them never fire `session-closed`. Kill sessions, not the server, when
-  `kill` matters. (`dirsesh init` reaps the records a dead server left behind.)
+- **A server that exits takes any teardown still in flight with it.** The hook runs inside the
+  tmux server, and the server exits as soon as its last session is gone -- it does not wait for
+  hooks it is still working through. Closing one session runs its `kill` normally, even when it
+  is the only session and the server exits straight after. What gets lost is a `kill` that had
+  not started yet: `tmux kill-server`, or closing several sessions in quick succession, will
+  run some of them and drop the rest. Close sessions one at a time when `kill` matters.
+  (`dirsesh init` reaps the state directories a dead server left behind, but the `kill` that
+  never ran does not run later.)
 - **`dirsesh at` sizes the session to the client that is about to attach.** tmux creates a detached
   session at 80x24, so a `start` that splits by percentage would build the layout at the wrong
   size and drift when the client arrives.

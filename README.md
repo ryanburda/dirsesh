@@ -49,9 +49,13 @@ Once a directory is passed to `dirsesh at <path>`, every session is created the 
     at the same directory even if a session has been renamed.
 
     A session is identified by the directory it started at, not by its name. `dirsesh` records
-    that directory on the session in the `@dirsesh_path` tmux option and compares against that.
-    Sessions `dirsesh` did not create have no `@dirsesh_path` and fall back to tmux's `#{session_path}`,
-    so a plain `tmux new-session` at that directory is found too.
+    that directory in the session's state directory when it creates it, and compares against
+    that record.
+
+    Only sessions `dirsesh` started are compared against. A plain `tmux new-session -c <path>`
+    has no record, so `dirsesh at <path>` neither finds it nor is stopped by it -- which is the
+    escape hatch when you do want two sessions at one directory. `dirsesh` complements the tmux
+    commands rather than standing in front of them.
 
 2. **Does a configuration claim that directory?**
 

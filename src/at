@@ -40,10 +40,15 @@ mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 # `dirsesh init` greps for to recognise a hook it installed before.
 HOOK_CLOSED=_session_closed
 
-# dirsesh's own file inside a session's state directory: the path the session
-# was started at. Dotted, so `ls` in a directory a configuration is using for
-# its own files does not lead with dirsesh's bookkeeping.
+# dirsesh's own files inside a session's state directory. Dotted, so `ls` in a
+# directory a configuration is using for its own files does not lead with
+# dirsesh's bookkeeping.
+#
+# $PATH_FILE holds the directory the session was started at, and is what says
+# `dirsesh at` built this session at all. $NOCONFIG_FILE sits beside it when
+# the session was built with -noconfig, marking it as owed no `kill`.
 PATH_FILE=.dirsesh_path
+NOCONFIG_FILE=.dirsesh_no_config
 
 ####################
 # helper functions #
@@ -100,10 +105,12 @@ session_state_dir() {
   # record.
   #
   # That record is $PATH_FILE inside it, holding the directory the session was
-  # started at. The hook cannot read that off the session itself -- tmux has
-  # freed @dirsesh_path and the session environment by the time session-closed
-  # fires -- and its existence is also what says a configuration built this
-  # session and is owed its `kill`.
+  # started at. It is the session's identity: `dirsesh at` compares against it
+  # to decide whether a directory already has a session, and the hook reads it
+  # to learn the directory a closing session was started at. The session
+  # itself can answer neither question -- tmux's #{session_path} drifts as the
+  # first pane cds around, and by the time session-closed fires the session's
+  # options and environment are already freed.
   #
   # Everything beside it is the configuration's: a directory rather than a
   # file so that `start` has somewhere to leave the pids, ports and temporary
@@ -121,14 +128,23 @@ session_state_dir() {
 }
 
 session_paths() {
-  # Emit "<session name>\t<path>" for every running session. The path is the
-  # @dirsesh_path recorded at creation; #{session_path} is the fallback for
-  # sessions dirsesh did not create (it drifts as the first pane cds around,
-  # which is why @dirsesh_path exists).
-  tmux list-sessions -F $'#{session_name}\t#{@dirsesh_path}\t#{session_path}' 2>/dev/null \
-    | while IFS=$'\t' read -r name recorded fallback; do
-        printf '%s\t%s\n' "$name" "${recorded:-$fallback}"
-      done
+  # Emit "<session name>\t<path>" for every session dirsesh started, reading
+  # the path out of each one's state directory.
+  #
+  # Sessions dirsesh did not start are left out rather than answered for with
+  # #{session_path}. A directory has one dirsesh session, and `tmux
+  # new-session -c` is the way to say you want another one anyway: dirsesh
+  # sits beside tmux rather than over it, so a session it did not start is
+  # none of its business and does not stop it starting its own.
+  #
+  # #{pid} expands per row, so one tmux call carries everything the record is
+  # keyed by, and the record itself is read by redirection rather than `cat`.
+  local name id pid record
+  while IFS=$'\t' read -r name id pid; do
+    record=$(session_state_dir "$pid" "$id")/$PATH_FILE
+    [ -f "$record" ] || continue
+    printf '%s\t%s\n' "$name" "$(<"$record")"
+  done < <(tmux list-sessions -F $'#{session_name}\t#{session_id}\t#{pid}' 2>/dev/null)
 }
 
 session_for_path() {
@@ -146,13 +162,20 @@ session_for_path() {
 path_for_session() {
   # Echo the path the session named $1 was started at, or nothing with a
   # non-zero status.
+  #
+  # Session names are the tmux server's, not dirsesh's, so the session in the
+  # way of a name can be one dirsesh never started and has no record for.
+  # #{session_path} answers for those. It is not identity -- it drifts as the
+  # first pane cds around, which is why nothing else here uses it -- but this
+  # only has to tell someone which session is holding the name.
   local want="$1" name path
   while IFS=$'\t' read -r name path; do
     [ "$name" = "$want" ] || continue
     printf '%s\n' "$path"
     return 0
   done < <(session_paths)
-  return 1
+
+  tmux display-message -p -t "=$want" '#{session_path}' 2>/dev/null
 }
 
 sanitize_session_name() {
@@ -540,8 +563,8 @@ session_closed() {
   state_dir=$(session_state_dir "$pid" "$id")
   record="$state_dir/$PATH_FILE"
 
-  # No record: no configuration built this session -- the path was
-  # unclaimed, -noconfig was given, or `dirsesh at` was never involved. Nothing is owed.
+  # No record: `dirsesh at` was never involved. Nothing is owed, and there is
+  # nothing to remove.
   #
   # Every session tmux closes reaches this line, and this is where nearly all
   # of them stop. Only `dirsesh at` writes a record, so a global hook stays an
@@ -557,6 +580,16 @@ session_closed() {
   # record in between -- tmux never reuses a session id within a server -- so
   # dropping it here keeps "a record exists" meaning "a kill is still owed".
   rm -f "$record"
+
+  # -noconfig opted this session out of being built by a configuration, so no
+  # configuration is owed its `kill` either -- not even one claiming the path
+  # today. The record still had to be written: -noconfig declines a
+  # configuration, not an identity, and `dirsesh at` on that directory has to
+  # find this session and switch to it like any other.
+  if [ -f "$state_dir/$NOCONFIG_FILE" ]; then
+    rm -rf "$state_dir"
+    exit 0
+  fi
 
   local session_file
   if [ -z "$root" ] || ! session_file=$(matching_config_for_root "$root"); then
@@ -699,7 +732,9 @@ session_at() {
           ;;
       esac
       if tmux has-session -t "=$name_value" 2>/dev/null; then
-        notify "Error: session '$name_value' is already open at $(path_for_session "$name_value")"
+        local held
+        held=$(path_for_session "$name_value")
+        notify "Error: session '$name_value' is already open at ${held:-an unknown path}"
         exit 1
       fi
       session_name="$name_value"
@@ -741,11 +776,36 @@ session_at() {
   session_id=$(tmux new-session -d -P -F '#{session_id}' -s "$session_name" -c "$selected" \
     ${width:+-x "$width"} ${height:+-y "$height"}) || exit 1
 
-  # Record the directory on the session itself; this is what identifies it.
-  # The trailing `:` is load-bearing: set-option takes a target pane, and
-  # `=name` alone is read as a pane target and fails to resolve, while
-  # `=name:` is that session's current pane.
-  tmux set-option -t "=$session_name:" @dirsesh_path "$selected"
+  # Record the directory in the session's state directory; this is what
+  # identifies it. Every session `dirsesh at` builds gets one, configured or
+  # not: the record is how a later `dirsesh at` on the same directory finds
+  # this session and switches to it instead of building a second one, and
+  # that answer does not depend on a configuration having claimed the path.
+  #
+  # Written before `start` runs rather than after it, so the window in which
+  # the session exists but cannot be found is the width of `new-session`
+  # rather than however long a configuration takes to lay itself out. It says
+  # "dirsesh built this session", not "start finished" -- a configuration that
+  # aborts halfway still gets its `kill` at close, which is the case that most
+  # needs one.
+  local pid state_dir
+  pid=$(tmux display-message -p '#{pid}' 2>/dev/null)
+  if [ -z "$pid" ] || [ -z "$session_id" ]; then
+    # Without a key to file the record under, the session has no identity: a
+    # later `dirsesh at` here would build a duplicate, and the hook would have
+    # nothing to read back. Said rather than silent, because the session is
+    # real and about to be switched to either way.
+    notify "dirsesh: could not record session '$session_name'; 'dirsesh at $selected' will not find it"
+  else
+    state_dir=$(session_state_dir "$pid" "$session_id")
+    mkdir -p "$state_dir"
+    printf '%s\n' "$selected" > "$state_dir/$PATH_FILE"
+
+    # -noconfig declines a configuration, not an identity. The marker rides
+    # beside the record so the hook knows not to run a `kill` this session
+    # never had a `start` for, whatever claims the path by then.
+    [ -n "$no_config" ] && : > "$state_dir/$NOCONFIG_FILE"
+  fi
 
   if [ -n "$matching_file" ]; then
     # A session no configuration claimed runs no script, so it gets no log.
@@ -755,30 +815,16 @@ session_at() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name' ($(config_name_for_file "$matching_file"))" > "$log_file"
 
     # Subshell so a configuration aborting under its own `set -e` does not
-    # tear down a session tmux already created. The cleanup record is written
-    # inside it: it is only owed once the configuration has actually been
-    # applied, and it is the only thing that makes the session-closed hook
-    # act on this session at all.
+    # tear down a session tmux already created.
     (
-      # The state directory comes first, so `start` has somewhere to leave
-      # what `kill` will need; the record inside it is written last, for the
-      # reason above. A server that will not say its pid leaves both out: with
-      # no key to file it under there is nothing to hand `start` and nothing
-      # the hook could read back.
-      local pid state_dir=""
-      pid=$(tmux display-message -p '#{pid}' 2>/dev/null)
-      if [ -n "$pid" ] && [ -n "$session_id" ]; then
-        state_dir=$(session_state_dir "$pid" "$session_id")
-        mkdir -p "$state_dir"
-        export STATE_DIR="$state_dir"
-      fi
+      # The state directory is `start`'s to leave the pids, ports and
+      # temporary files `kill` will need in; it already exists, holding the
+      # record written above. A server that would not say its pid leaves
+      # `start` without one, which it is told by the variable being empty.
+      [ -n "$state_dir" ] && export STATE_DIR="$state_dir"
 
       export SESSION="$session_name" ROOT="$selected"
       run_config "$matching_file" start ${state_dir:+"$state_dir"}
-
-      if [ -n "$state_dir" ]; then
-        printf '%s\n' "$selected" > "$state_dir/$PATH_FILE"
-      fi
     ) >> "$log_file" 2>&1
   fi
 
