@@ -28,14 +28,22 @@
 shopt -s extglob
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dirsesh"
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh"
-LOG_DIR="$STATE_DIR/logs"
-RECORD_DIR="$STATE_DIR/sessions"
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/logs"
+SESSIONS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/sessions"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
+
+# There is deliberately no STATE_DIR variable in this script: that name belongs
+# to the per-session directory exported to `start` and `kill`, and a global of
+# the same name would be shadowed inside the very subshells that export it.
 
 # The internal verb the tmux hook calls back on. It is also the string
 # `dirsesh init` greps for to recognise a hook it installed before.
 HOOK_CLOSED=_session_closed
+
+# dirsesh's own file inside a session's state directory: the path the session
+# was started at. Dotted, so `ls` in a directory a configuration is using for
+# its own files does not lead with dirsesh's bookkeeping.
+PATH_FILE=.dirsesh_path
 
 ####################
 # helper functions #
@@ -86,12 +94,21 @@ dirsesh_path() {
   command -v -- dirsesh 2>/dev/null
 }
 
-session_record() {
-  # Path of a session's cleanup record: the file whose existence says a
-  # configuration built this session and is owed its `kill` when it closes.
-  # It holds the directory the session was started at, which the hook cannot
-  # read off the session itself -- tmux has freed @dirsesh_path and the session
-  # environment by the time session-closed fires.
+session_state_dir() {
+  # Path of a session's state directory: the scratch directory handed to
+  # `start` and `kill` as $STATE_DIR, and where dirsesh keeps its own cleanup
+  # record.
+  #
+  # That record is $PATH_FILE inside it, holding the directory the session was
+  # started at. The hook cannot read that off the session itself -- tmux has
+  # freed @dirsesh_path and the session environment by the time session-closed
+  # fires -- and its existence is also what says a configuration built this
+  # session and is owed its `kill`.
+  #
+  # Everything beside it is the configuration's: a directory rather than a
+  # file so that `start` has somewhere to leave the pids, ports and temporary
+  # files `kill` will need, which nothing else survives to carry. dirsesh
+  # removes the whole directory once `kill` has run.
   #
   # Keyed by session id under the server's pid: ids restart at $0 with every
   # tmux server, so an id alone would be read back by an unrelated session of
@@ -100,7 +117,7 @@ session_record() {
   # Args:
   #   $1: pid: the tmux server's pid, #{pid}
   #   $2: id: the session id, #{session_id}, leading `$` and all
-  printf '%s/%s/%s\n' "$RECORD_DIR" "$1" "${2#\$}"
+  printf '%s/%s/%s\n' "$SESSIONS_DIR" "$1" "${2#\$}"
 }
 
 session_paths() {
@@ -495,7 +512,7 @@ init_hook() {
   # hooks, leaving its records behind. Reap the ones whose server is gone.
   # Another live server's records are left alone: several may be running.
   local dir pid
-  for dir in "$RECORD_DIR"/*/; do
+  for dir in "$SESSIONS_DIR"/*/; do
     [ -d "$dir" ] || continue
     pid=$(basename "$dir")
     case "$pid" in
@@ -519,8 +536,9 @@ session_closed() {
   #   $3: session: the closed session's name, #{hook_session_name}
   local id="$1" pid="$2" session="$3"
 
-  local record
-  record=$(session_record "$pid" "$id")
+  local state_dir record
+  state_dir=$(session_state_dir "$pid" "$id")
+  record="$state_dir/$PATH_FILE"
 
   # No record: no configuration built this session -- the path was
   # unclaimed, -noconfig was given, or `dirsesh at` was never involved. Nothing is owed.
@@ -533,11 +551,18 @@ session_closed() {
 
   local root
   root=$(cat "$record")
+
+  # The state directory outlives the record: `kill` is about to be handed it,
+  # and it is removed below once `kill` has returned. Nothing re-reads the
+  # record in between -- tmux never reuses a session id within a server -- so
+  # dropping it here keeps "a record exists" meaning "a kill is still owed".
   rm -f "$record"
-  [ -n "$root" ] || exit 0
 
   local session_file
-  session_file=$(matching_config_for_root "$root") || exit 0
+  if [ -z "$root" ] || ! session_file=$(matching_config_for_root "$root"); then
+    rm -rf "$state_dir"
+    exit 0
+  fi
 
   local log_dir="$LOG_DIR/$session"
   local log_file="$log_dir/dirsesh.log"
@@ -546,9 +571,18 @@ session_closed() {
 
   # Backgrounded so tmux's run-shell returns at once and the hook does not
   # hold up the server while cleanup runs. ROOT comes from the record, so
-  # `kill` sees the ROOT that `start` saw.
-  nohup env SESSION="$session" ROOT="$root" \
-    "$session_file" kill >> "$log_file" 2>&1 &
+  # `kill` sees the ROOT that `start` saw, and STATE_DIR is the same directory
+  # `start` was given, whatever it left in there.
+  #
+  # The state directory is removed after `kill` returns, which is why this is
+  # a subshell rather than a bare nohup: an ignored SIGHUP is what nohup buys,
+  # and it is inherited across the exec into the configuration.
+  (
+    trap '' HUP
+    env SESSION="$session" ROOT="$root" STATE_DIR="$state_dir" \
+      "$session_file" kill "$state_dir"
+    rm -rf "$state_dir"
+  ) >> "$log_file" 2>&1 &
 }
 
 match_configs() {
@@ -726,15 +760,24 @@ session_at() {
     # applied, and it is the only thing that makes the session-closed hook
     # act on this session at all.
     (
-      export SESSION="$session_name" ROOT="$selected"
-      run_config "$matching_file" start
-
-      local pid record
+      # The state directory comes first, so `start` has somewhere to leave
+      # what `kill` will need; the record inside it is written last, for the
+      # reason above. A server that will not say its pid leaves both out: with
+      # no key to file it under there is nothing to hand `start` and nothing
+      # the hook could read back.
+      local pid state_dir=""
       pid=$(tmux display-message -p '#{pid}' 2>/dev/null)
       if [ -n "$pid" ] && [ -n "$session_id" ]; then
-        record=$(session_record "$pid" "$session_id")
-        mkdir -p "$(dirname "$record")"
-        printf '%s\n' "$selected" > "$record"
+        state_dir=$(session_state_dir "$pid" "$session_id")
+        mkdir -p "$state_dir"
+        export STATE_DIR="$state_dir"
+      fi
+
+      export SESSION="$session_name" ROOT="$selected"
+      run_config "$matching_file" start ${state_dir:+"$state_dir"}
+
+      if [ -n "$state_dir" ]; then
+        printf '%s\n' "$selected" > "$state_dir/$PATH_FILE"
       fi
     ) >> "$log_file" 2>&1
   fi

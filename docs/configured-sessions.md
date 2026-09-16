@@ -17,8 +17,8 @@ execs it), which is why a configuration can be written in any language, or be a 
 | --- | --- | --- |
 | `glob` | resolving which configuration claims a directory | print a glob of the directories it claims, on stdout |
 | `name` | naming the session, before it exists | print the session name for the directory given as `$2`, on stdout |
-| `start` | after `dirsesh at` has created the session | build the layout |
-| `kill` | asynchronously, when the session closes ([`dirsesh init`](#why-one-hook-dirsesh-init)) | tear down what `start` built |
+| `start` | after `dirsesh at` has created the session | build the layout; leave anything `kill` will need in the directory given as `$2` |
+| `kill` | asynchronously, when the session closes ([`dirsesh init`](#why-one-hook-dirsesh-init)) | tear down what `start` built, reading back what it left in `$2` |
 
 Three rules make it work in every language:
 
@@ -34,7 +34,9 @@ Three rules make it work in every language:
 
 Environment: `ROOT` (the claimed directory) is set for `name`, `start` and `kill`, but not for
 `glob`, which is asked before a directory is settled on. `SESSION` (the session name) is set
-for `start` and `kill`, but not for `name`, which is the verb that decides it.
+for `start` and `kill`, but not for `name`, which is the verb that decides it. `STATE_DIR` (a
+[scratch directory of the session's own](#passing-state-from-start-to-kill)) is set for `start`
+and `kill` too, and reaches them as `$2` as well -- the argument `name` gets the directory in.
 
 ## The configuration file
 
@@ -173,6 +175,55 @@ case "$1" in
 esac
 ```
 
+## Passing state from `start` to `kill`
+
+`start` and `kill` run at opposite ends of a session's life, in different processes, often
+hours apart, and nothing a shell can carry survives between them. By the time `kill` runs tmux
+has already closed the session: there are no panes left to read, no session environment, and
+nothing `start` set.
+
+`STATE_DIR` is the way across. It is a directory of that session's own, created before `start`
+runs and handed to both verbs -- as `$STATE_DIR`, and as `$2`:
+
+```
+~/.local/state/dirsesh/sessions/<tmux server pid>/<session id>/
+```
+
+Write whatever `kill` will need into it: the pid of something `start` kicked off, a port that
+was picked at random, a temporary directory to remove, a container name.
+
+```bash
+  start)
+    # A dev server that is not in a pane, so nothing closing the session stops it.
+    (cd "$ROOT" && npm run dev) &
+    echo $! > "$STATE_DIR/dev.pid"
+    ;;
+
+  kill)
+    # $STATE_DIR is the same directory `start` wrote to, still holding its files.
+    kill "$(cat "$STATE_DIR/dev.pid")" 2>/dev/null
+    ;;
+```
+
+The directory is yours apart from `.dirsesh_path`, dirsesh's own record of the directory the
+session was started at -- the file that tells the [`session-closed`
+hook](#why-one-hook-dirsesh-init) a `kill` is owed here at all. It is written after `start`
+returns, so a `start` that lists `$STATE_DIR` sees only its own files.
+
+dirsesh removes the whole directory once `kill` returns, so there is nothing to clean up by
+hand. Two things follow from that:
+
+- **`kill` should read what it needs before backgrounding anything.** Something still reading
+  `$STATE_DIR` after `kill` has returned can find it gone.
+- **It belongs to the session, not to the directory.** Opening the same directory again is a
+  new session under a new session id, and starts with an empty `STATE_DIR`. It is a note from
+  `start` to `kill`, not a cache.
+
+Keyed under the tmux server's pid, for the same reason the record always was: session ids
+restart at `$0` with every server. A server killed outright (`tmux kill-server`) closes no
+sessions, so it fires no `session-closed`, runs no `kill` and leaves its directories behind;
+the next [`dirsesh init`](#why-one-hook-dirsesh-init) reaps the ones whose server is gone.
+
 ## Writing a configuration in another language
 
 The contract is argv in, stdout and exit status out. The same `notes` configuration in fish and
@@ -230,7 +281,7 @@ def name(path):
     print("notes")
 
 
-def start(path):
+def start(state_dir):
     code = tmux("display-message", "-p", "-t", SESSION, "#{pane_id}")
     tmux("rename-window", "-t", code, "notes")
     tmux("send-keys", "-t", code, "nvim .", "Enter")
@@ -240,8 +291,10 @@ VERBS = {"glob": lambda _: glob(), "name": name, "start": start}
 
 if __name__ == "__main__":
     verb = sys.argv[1] if len(sys.argv) > 1 else ""
-    path = sys.argv[2] if len(sys.argv) > 2 else ROOT
-    VERBS.get(verb, lambda _: None)(path)
+    # $2 is the claimed directory for `name`, the state directory for `start`
+    # and `kill`; ROOT is the claimed directory for all three.
+    arg = sys.argv[2] if len(sys.argv) > 2 else ROOT
+    VERBS.get(verb, lambda _: None)(arg)
 ```
 
 **NOTE:** A `glob` is matched by dirsesh, using [bash's pattern matching with `extglob`
@@ -364,17 +417,18 @@ wins, which is deterministic and independent of your locale.
 
 The configurations that lose are simply ignored. If a specific configuration should build on a
 shared one, remember that configurations are ordinary executables: call the shared file
-yourself. `SESSION` and `ROOT` are already in the environment, so it behaves exactly as if it
-had claimed the directory itself:
+yourself. `SESSION`, `ROOT` and `STATE_DIR` are already in the environment, so it behaves
+exactly as if it had claimed the directory itself -- though a shared configuration and its
+caller are then writing into one `STATE_DIR`, so give the files distinct names:
 
 ```bash
   start)
-    "$HOME/.config/dirsesh/work.sh" start                          # the shared layout first
+    "$HOME/.config/dirsesh/work.sh" start "$STATE_DIR"             # the shared layout first
     docker compose --project-directory "$ROOT" up --detach &       # then this project's services
     ;;
 
   kill)
-    "$HOME/.config/dirsesh/work.sh" kill
+    "$HOME/.config/dirsesh/work.sh" kill "$STATE_DIR"
     docker compose --project-directory "$ROOT" down
     ;;
 ```
@@ -475,9 +529,9 @@ tmux new-session -c ~/code/myproject    # an ordinary tmux session, start to fin
 - **Without `dirsesh init`, `start` still runs and `kill` never does.** `dirsesh at` says so when it
   builds a session whose configuration it cannot arrange to clean up, and builds it anyway.
 - **A session's options are gone by `session-closed`.** Neither `@dirsesh_path` nor the session
-  environment can be read from that hook, which is why the record in
-  `${XDG_STATE_HOME:-~/.local/state}/dirsesh/sessions/` holds the directory as well as marking the
-  session.
+  environment can be read from that hook, which is why the `.dirsesh_path` record in the
+  session's [state directory](#passing-state-from-start-to-kill) holds the directory as well as
+  marking the session.
 - **The configuration is resolved again at close.** Editing a `glob` between opening a
   session and closing it can change which configuration tears it down, or leave it with none.
 - **`tmux kill-server` is not a reliable teardown.** tmux exits without closing its sessions
