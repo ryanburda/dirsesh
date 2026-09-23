@@ -27,6 +27,10 @@ Usage:
     $DIRSESH_GIT_ROOT                            # Where to search, instead of $HOME
     $DIRSESH_GIT_MAX_DEPTH                       # How deep to search, instead of 5 levels (0 for no limit)
   dirsesh git-wt                                 # Choose a worktree of the current repository, and open a session there
+  dirsesh z <query>...                           # Open a session at a directory zoxide knows, named by keywords
+    query                                        # Keywords to match, or a directory to use as written
+  dirsesh zi [query]...                          # Choose a directory zoxide knows with fzf, and open a session there
+    query                                        # Keywords to narrow the list with before it opens
 
   dirsesh bm [char] [-p]                         # Open a session at a bookmark; chooses one with fzf when char is left off
     char                                         # The character the bookmark is keyed by
@@ -45,15 +49,6 @@ Usage:
     session                                      # Kill this one instead of picking
   dirsesh logs [session]                         # Browse the logs a dirsesh configuration wrote
     session                                      # Browse only this session's logs
-
-Every command that chooses a directory opens a session at it, so none of them
-has to be chained with `dirsesh at`:
-
-  dirsesh git
-  dirsesh bm m
-
-`at` is the one that takes a path rather than finding one, and `bm -p` the one
-that prints rather than opens.
 
 See https://github.com/ryanburda/dirsesh for more documentation
 EOF
@@ -274,6 +269,12 @@ case "$command" in
     ;;
   git-wt)
     run_src_at pick/git-wt "$@"
+    ;;
+  z)
+    run_src_at pick/z "$@"
+    ;;
+  zi)
+    run_src_at pick/zi "$@"
     ;;
   bm | bm-set | bm-rm | bm-status | bm-status-init)
     # The bookmark verbs are one program the way at and config-match are:

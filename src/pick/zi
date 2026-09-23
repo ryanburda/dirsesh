@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# zi: choose a directory zoxide knows with fzf, and open a session there.
+#
+# Usage: dirsesh zi [query]...
+#   query    Keywords to narrow the list with before it opens
+#
+# zoxide's own interactive mode, opening a session at what you choose rather
+# than cd-ing into it:
+#
+#   dirsesh zi                 every directory zoxide knows, ranked
+#   dirsesh zi code            ...narrowed to the ones matching "code"
+#
+# This is the one to reach for when you know you have been there but not what
+# it was called. [`dirsesh z`](z) is for when you do.
+#
+# Backing out opens nothing. So does a query matching none of zoxide's
+# directories; zoxide says which it was on its own stderr.
+#
+# The chosen directory is added back to zoxide before it is opened, so a
+# directory reached through dirsesh ranks the same as one reached by `zi`.
+#
+# Needs zoxide on PATH, and the fzf its interactive mode runs:
+# https://github.com/ajeetdsouza/zoxide
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path dirsesh reads
+  # back -- and a program run from a tmux popup loses its stderr when the
+  # popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+if ! command -v zoxide > /dev/null 2>&1; then
+  note "Error: 'dirsesh zi' needs zoxide on PATH"
+  exit 1
+fi
+
+# An empty query is no narrowing rather than an error, which is the whole of
+# the difference from `dirsesh z`: there is a list to choose from either way.
+#
+# zoxide exits non-zero both when you back out of its picker and when nothing
+# matched, and says which on its own stderr. Neither opens anything, so the
+# status is passed on rather than told apart here.
+dir=$(zoxide query -i -- "$@") || exit 1
+
+# Reached through dirsesh counts as reached, so the ranking keeps up with how
+# the directory is actually being used. A zoxide that refuses the addition is
+# not a reason to refuse the session.
+zoxide add -- "$dir" 2>/dev/null
+
+printf '%s\n' "$dir"

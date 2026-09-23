@@ -33,8 +33,8 @@ dirsesh at "$(mktemp -d)"
 dirsesh at "$(find $HOME -type d | fzf)"
 # fuzzy find worktrees of the current git repo
 dirsesh at "$(git worktree list | fzf | awk '{print $1}')"
-# type something and start a session wherever zoxide takes you
-(printf 'z '; read -r q; z "$q" && dirsesh at .)
+# wherever zoxide takes you
+dirsesh at "$(zoxide query -i)"
 ```
 
 ### Session creation
@@ -110,7 +110,7 @@ dirsesh git      # choose a repository under $HOME, and open a session there
 dirsesh bm m     # ...or go straight to the one bookmarked at m
 ```
 
-- [Pickers](docs/pickers.md) — `ls`, `git`, `git-wt`
+- [Pickers](docs/pickers.md) — `ls`, `git`, `git-wt`, `z`, `zi`
 - [Bookmarks](docs/bookmark.md) — `bm`, `bm-set`, `bm-rm`, `bm-status`
 - [Session Management](docs/session-management.md) — `switch`, `last`, `kill`, `logs`
 
@@ -143,6 +143,10 @@ Usage:
     $DIRSESH_GIT_ROOT                            # Where to search, instead of $HOME
     $DIRSESH_GIT_MAX_DEPTH                       # How deep to search, instead of 5 levels (0 for no limit)
   dirsesh git-wt                                 # Choose a worktree of the current repository, and open a session there
+  dirsesh z <query>...                           # Open a session at a directory zoxide knows, named by keywords
+    query                                        # Keywords to match, or a directory to use as written
+  dirsesh zi [query]...                          # Choose a directory zoxide knows with fzf, and open a session there
+    query                                        # Keywords to narrow the list with before it opens
 
   dirsesh bm [char] [-p]                         # Open a session at a bookmark; chooses one with fzf when char is left off
     char                                         # The character the bookmark is keyed by
@@ -161,15 +165,6 @@ Usage:
     session                                      # Kill this one instead of picking
   dirsesh logs [session]                         # Browse the logs a dirsesh configuration wrote
     session                                      # Browse only this session's logs
-
-Every command that chooses a directory opens a session at it, so none of them
-has to be chained with `dirsesh at`:
-
-  dirsesh git
-  dirsesh bm m
-
-`at` is the one that takes a path rather than finding one, and `bm -p` the one
-that prints rather than opens.
 
 See https://github.com/ryanburda/dirsesh for more documentation
 ```

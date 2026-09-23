@@ -3,9 +3,11 @@
 A picker opens an fzf list, and starts a tmux session at whatever you choose:
 
 ```bash
-dirsesh ls        # a directory under $HOME
-dirsesh git       # a git repository under $HOME
-dirsesh git-wt    # a worktree of the repository you are standing in
+dirsesh ls          # a directory under $HOME
+dirsesh git         # a git repository under $HOME
+dirsesh git-wt      # a worktree of the repository you are standing in
+dirsesh z api       # a directory zoxide knows, named by keywords
+dirsesh zi          # ...or chosen from zoxide's list
 ```
 
 That is the whole interface. Each one is `dirsesh at` with the path filled in for you, so
@@ -28,6 +30,7 @@ dirsesh at "$(git rev-parse --show-toplevel)"
 ## Dependencies
 
 - [`fzf`](https://github.com/junegunn/fzf)
+- [`zoxide`](https://github.com/ajeetdsouza/zoxide), for `z` and `zi` only
 
 ## Usage
 
@@ -43,6 +46,10 @@ dirsesh git [-brief] [-filter] [-fetch]
   $DIRSESH_GIT_ROOT                     # Where to search, instead of $HOME
   $DIRSESH_GIT_MAX_DEPTH                # How deep to search, instead of 5 levels (0 for no limit)
 dirsesh git-wt                          # Choose a worktree of the current repository, and open a session there
+dirsesh z <query>...                    # Open a session at a directory zoxide knows, named by keywords
+  query                                 # Keywords to match, or a directory to use as written
+dirsesh zi [query]...                   # Choose a directory zoxide knows with fzf, and open a session there
+  query                                 # Keywords to narrow the list with before it opens
 ```
 
 Each picker documents itself. `-help` prints what it lists, how it behaves at the edges, and
@@ -202,6 +209,50 @@ Must be run from inside a git repository (or another worktree). A bare repositor
 there is no working tree to sit in — and the worktrees checked out beside it are listed on their
 own. A detached HEAD shows as `(detached)`.
 
+### `z` and `zi`
+
+These two go through [zoxide](https://github.com/ajeetdsouza/zoxide), which ranks the
+directories you actually visit rather than walking the disk. `ls`, `git` and `git-wt` find
+directories by what they *are*; these find them by where you have already been.
+
+`dirsesh z` resolves keywords the way zoxide's own `z` does, and opens a session at what comes
+back:
+
+```bash
+dirsesh z api            # the highest-ranked directory matching "api"
+dirsesh z code api       # ...matching both keywords
+dirsesh z ~/code/api     # a directory named outright
+```
+
+A single argument naming an existing directory is used as written — a path you spelled out is
+not a search. Anything else is a query, and one argument holding several words is several
+keywords: `dirsesh z "code api"` asks what `dirsesh z code api` asks. That matters because a
+tmux `command-prompt` hands its whole answer over as one argument, and a query typed there
+should mean what it means at a shell. A leading `~` is expanded for the same reason — a
+command-prompt's answer arrives as written rather than through a shell that would have
+expanded it.
+
+An empty query is refused, and exits non-zero. zoxide would take it as "anything" and hand back
+its top-ranked directory, which is a long way from what was asked for — and empty is exactly
+what a command-prompt submitted with nothing in it gives. A query matching nothing is zoxide's
+own error, on its own stderr, and opens nothing.
+
+`dirsesh zi` is zoxide's interactive mode: the directories it knows, ranked, in fzf. A query
+narrows the list before it opens rather than resolving to one answer:
+
+```bash
+dirsesh zi               # every directory zoxide knows, ranked
+dirsesh zi code          # ...narrowed to the ones matching "code"
+```
+
+`z` is for when you know where you are going and `zi` for when you know you have been there —
+the same split as [bookmarks](bookmark.md) against the pickers above, learned rather than
+declared.
+
+Both add the directory they open back to zoxide, so one reached through `dirsesh` ranks the same
+as one reached by `z` at a shell. Without that, using dirsesh to get around would slowly make
+zoxide worse at knowing where you go.
+
 ## Binding them
 
 ```tmux
@@ -211,7 +262,15 @@ bind-key d popup -E 'dirsesh ls'
 bind-key r popup -E 'dirsesh git'
 bind-key R popup -E 'dirsesh git -brief -filter -fetch'
 bind-key w popup -E 'dirsesh git-wt'
+bind-key i popup -E 'dirsesh zi'
+bind-key z command-prompt -p "z:" "run-shell -b \"dirsesh z '%%%'\""
 ```
+
+`z` is the one that takes typed input rather than offering a list, so it is bound through
+`command-prompt` the way the [bookmark](bookmark.md) keys are — the binding asks, and passes the
+answer in. Unlike those it uses `command-prompt` without `-1`, since a query is a word rather
+than a single keypress, and `%%%` hands the whole answer over as one argument — which is why
+`z` splits it back into keywords.
 
 A picker is worth binding twice — once in `tmux.conf` like the above for when tmux is running,
 and once in your shell for when no tmux server is running:
@@ -223,7 +282,13 @@ alias d='dirsesh ls'
 alias r='dirsesh git'
 alias R='dirsesh git -brief -filter -fetch'
 alias w='dirsesh git-wt'
+alias z='dirsesh z'
+alias zi='dirsesh zi'
 ```
+
+An alias called `z` shadows the shell function zoxide's own `zoxide init` installs, so pick one:
+either `z` cds and `dirsesh z` opens sessions, or the alias takes the name over. Nothing breaks
+either way — both read and write the same database.
 
 This ensures your muscle memory is similar no matter if you are in or out of tmux.
 

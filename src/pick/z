@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+#
+# z: open a session at a directory zoxide knows, named by keywords.
+#
+# Usage: dirsesh z <query>...
+#   query    Keywords to match against zoxide's database, or a directory to
+#            use as written
+#
+# This resolves a directory the way zoxide's own `z` does, and opens a session
+# there rather than cd-ing into it:
+#
+#   dirsesh z api              the highest-ranked directory matching "api"
+#   dirsesh z code api         ...matching both keywords
+#   dirsesh z ~/code/api       a directory named outright
+#
+# A single argument naming an existing directory is used as written, exactly
+# as `z` does: a path you spelled out is not a search. It is resolved with
+# cd/pwd, so a relative path or one with a trailing slash still yields
+# something `dirsesh at` can be handed.
+#
+# Anything else is a query. One argument holding several words is several
+# keywords -- `dirsesh z "code api"` asks what `dirsesh z code api` asks --
+# because a tmux `command-prompt` hands its whole answer over as one argument,
+# and a query typed there should mean what it means at a shell. Globbing is
+# off while that is split, so a query holding a * stays the query rather than
+# becoming whatever sits in the current directory.
+#
+# A leading ~ is expanded here, because a command-prompt's answer arrives as
+# written rather than through a shell that would have expanded it.
+#
+# An empty query is refused rather than answered. `zoxide query` with no
+# keywords takes it as "anything" and hands back its top-ranked directory,
+# which is a long way from what was asked for -- and empty is exactly what a
+# command-prompt submitted with nothing in it gives.
+#
+# No match is zoxide's own error, on its own stderr, and nothing is opened.
+#
+# The chosen directory is added back to zoxide before it is opened, so a
+# directory reached through dirsesh ranks the same as one reached by `z`. That
+# is what keeps the two from drifting apart when dirsesh is how you get around.
+#
+# Needs zoxide on PATH: https://github.com/ajeetdsouza/zoxide
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path dirsesh reads
+  # back -- and a program run from a tmux popup loses its stderr when the
+  # popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+if ! command -v zoxide > /dev/null 2>&1; then
+  note "Error: 'dirsesh z' needs zoxide on PATH"
+  exit 1
+fi
+
+# The prompt text a tmux binding hands over is never tilde-expanded, so a ~
+# would otherwise be looked up as a keyword and found in nothing.
+case "$1" in
+  "~" | "~/"*) set -- "$HOME${1#\~}" "${@:2}" ;;
+esac
+
+# A single existing directory is a path, not a search -- the same call
+# zoxide's own `z` makes, and the reason this is checked before the query is
+# split: a directory whose name holds a space is still one path.
+#
+# CDPATH is cleared because a match in it would both cd elsewhere and print
+# the directory onto the stdout this is read from.
+if [ $# -eq 1 ] && [ -d "$1" ]; then
+  if ! dir=$(CDPATH= cd -- "$1" 2>/dev/null && pwd); then
+    note "Error: could not resolve the directory '$1'"
+    exit 1
+  fi
+
+  zoxide add -- "$dir" 2>/dev/null
+  printf '%s\n' "$dir"
+  exit 0
+fi
+
+# The keywords to query by. One argument is split into words, for the
+# command-prompt case above; several are taken as given, minus any that are
+# empty. Either way what is left is what was actually asked for, and an
+# argument of nothing but spaces leaves nothing.
+keywords=()
+if [ $# -eq 1 ]; then
+  set -f
+  keywords=($1)
+  set +f
+else
+  for arg in "$@"; do
+    [ -n "$arg" ] && keywords+=("$arg")
+  done
+fi
+
+if [ ${#keywords[@]} -eq 0 ]; then
+  note "Error: 'dirsesh z' needs something to look for, e.g. dirsesh z myproject"
+  exit 1
+fi
+
+# zoxide says what went wrong on its own stderr -- "no match found" among it --
+# so its status is passed on rather than dressed up here.
+dir=$(zoxide query -- "${keywords[@]}") || exit 1
+
+# Reached through dirsesh counts as reached, so the ranking keeps up with how
+# the directory is actually being used. A zoxide that refuses the addition is
+# not a reason to refuse the session.
+zoxide add -- "$dir" 2>/dev/null
+
+printf '%s\n' "$dir"

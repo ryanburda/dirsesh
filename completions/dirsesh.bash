@@ -27,7 +27,7 @@ _dirsesh_completions() {
     cmd="${COMP_WORDS[1]}"
 
     subcmds="at config-match init"
-    subcmds="$subcmds ls git git-wt"
+    subcmds="$subcmds ls git git-wt z zi"
     subcmds="$subcmds bm bm-set bm-rm bm-status bm-status-init"
     subcmds="$subcmds switch last kill logs help"
 
@@ -90,6 +90,17 @@ _dirsesh_completions() {
             ;;
         git)
             COMPREPLY=($(compgen -W "-help -brief -filter -fetch" -- "$cur"))
+            return 0
+            ;;
+        z)
+            # Keywords are the usual argument and cannot be completed; a
+            # directory is the other thing it takes, and can be.
+            COMPREPLY=($(compgen -d -W "-help" -- "$cur"))
+            return 0
+            ;;
+        zi)
+            [ "$COMP_CWORD" -eq 2 ] || return 0
+            COMPREPLY=($(compgen -W "-help" -- "$cur"))
             return 0
             ;;
         init | ls | git-wt | last | bm-status-init)

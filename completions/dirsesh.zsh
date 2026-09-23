@@ -23,6 +23,8 @@ _dirsesh_commands() {
         'ls:Open a session at a directory under $HOME'
         'git:Open a session at a git repository under $HOME'
         'git-wt:Open a session at a worktree of the current repository'
+        'z:Open a session at a directory zoxide knows, named by keywords'
+        'zi:Choose a directory zoxide knows with fzf, and open a session there'
         'bm:Open a session at a bookmark (-p to print them all)'
         'bm-set:Bookmark a directory at a character'
         'bm-rm:Remove a bookmark'
@@ -125,6 +127,12 @@ _dirsesh() {
             _values -s ' ' 'bm-status options' '-s' '--style' '-c' '--current-style'
             (( CURRENT == 2 )) && compadd -- -help
             ;;
+        z)
+            # Keywords are the usual argument and cannot be completed; a
+            # directory is the other thing it takes, and can be.
+            _files -/
+            (( CURRENT == 2 )) && compadd -- -help
+            ;;
         git)
             _values -s ' ' 'git options' \
                 '-brief[show what each repository has waiting]' \
@@ -132,7 +140,7 @@ _dirsesh() {
                 '-fetch[fetch first, so the ahead/behind counts are current]'
             (( CURRENT == 2 )) && compadd -- -help
             ;;
-        init | ls | git-wt | last | bm-status-init)
+        init | ls | git-wt | zi | last | bm-status-init)
             (( CURRENT == 2 )) && compadd -- -help
             ;;
     esac
