@@ -19,6 +19,18 @@ both are worth having.
 a session switches to it rather than opening a second one, and a
 [configuration](configured-sessions.md) claiming that directory still builds the session.
 
+A bookmark is a file holding a directory, so the store is readable without any of this:
+
+| instead of | you would write |
+| --- | --- |
+| `dirsesh bm m` | `dirsesh at "$(cat ~/.local/state/dirsesh/bookmarks/m)"` |
+| `dirsesh bm-set m` | `pwd > ~/.local/state/dirsesh/bookmarks/m` |
+| `dirsesh bm-rm m` | `rm ~/.local/state/dirsesh/bookmarks/m` |
+
+Those are the shape rather than the equivalent — what you would be hand-rolling is the character
+validation, the atomic write, the fzf list, the status line, and backing out of a tmux prompt
+without setting anything. See [Storage](#storage) for the format itself.
+
 ## Dependencies
 
 - [`fzf`](https://github.com/junegunn/fzf), for `bm` without a character

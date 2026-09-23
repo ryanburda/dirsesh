@@ -97,18 +97,36 @@ a configuration. Everything else closes exactly as it would on a server with no 
 - configuration scripts are applied at session creation based on the directory
 - tear down scripts are automatically run no matter how the session is killed
 
-### Extras
+### Batteries included
 
-`dirsesh at` creates sessions. Switching between them and killing them are separate jobs that
-plenty of other tools already do well, so if you have one you like, keep using it.
-
-`dirsesh` does ship with a few other commands for a more well rounded experience. Each of the
-first two chooses a directory and hands it to `dirsesh at` itself, so there is nothing to chain:
+Three commands are the core:
 
 ```bash
-dirsesh git      # choose a repository under $HOME, and open a session there
-dirsesh bm m     # ...or go straight to the one bookmarked at m
+dirsesh at <path>          # a session at a directory
+dirsesh config-match       # which configuration claims a directory
+dirsesh init               # the tmux hook teardown runs through
 ```
+
+That is what the three sections above describe, and it is the whole of what `dirsesh` is.
+
+Everything else is conventient extras. 
+
+| instead of | you would write |
+| --- | --- |
+| `dirsesh ls` | `dirsesh at "$(find ~ -type d \| fzf)"` |
+| `dirsesh git` | `dirsesh at "$(find ~ -name .git -prune -print \| sed 's#/\.git$##' \| fzf)"` |
+| `dirsesh git-wt` | `dirsesh at "$(git worktree list \| fzf \| awk '{print $1}')"` |
+| `dirsesh z api` | `dirsesh at "$(zoxide query -- api)"` |
+| `dirsesh zi` | `dirsesh at "$(zoxide query -i)"` |
+| `dirsesh bm m` | `dirsesh at "$(cat ~/.local/state/dirsesh/bookmarks/m)"` |
+| `dirsesh switch` | `tmux switch-client -t "$(tmux list-sessions -F '#{session_name}' \| fzf)"` |
+| `dirsesh last` | `tmux switch-client -l` |
+| `dirsesh kill` | `tmux kill-session -t "$(tmux list-sessions -F '#{session_name}' \| fzf)"` |
+| `dirsesh logs` | `tail -f ~/.local/state/dirsesh/logs/<session>/dirsesh.log` |
+
+Those are the shape rather than the equivalent. The shipped versions also decline quietly when
+you back out instead of erroring, survive a session name with a colon in it, skip bare
+repositories, keep zoxide's ranking current, and so on.
 
 - [Pickers](docs/pickers.md) — `ls`, `git`, `git-wt`, `z`, `zi`
 - [Bookmarks](docs/bookmark.md) — `bm`, `bm-set`, `bm-rm`, `bm-status`
@@ -124,6 +142,9 @@ Usage:
   dirsesh                                        # Show help message
   dirsesh <command> -help                        # Show what one command does, in detail
 
+CORE -- sessions at directories, and the configuration that builds them.
+This is the whole of what dirsesh is.
+
   dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
     path                                         # The directory to start the session at
     -noconfig                                    # Ignore any configuration claiming that path
@@ -132,6 +153,11 @@ Usage:
   dirsesh config-match [path]                    # Configurations claiming a path (defaults to the current directory)
 
   dirsesh init                                   # Install dirsesh's tmux hooks (put this in tmux.conf)
+
+EXTRAS -- conveniences built on the core. Nothing above calls anything below,
+and each one stands in for a command you would otherwise write by hand.
+
+  Choosing a directory, and opening a session at it:
 
   dirsesh ls                                     # Choose a directory under $HOME, and open a session there
     $DIRSESH_LS_ROOT                             # Where to search, instead of $HOME
@@ -148,6 +174,8 @@ Usage:
   dirsesh zi [query]...                          # Choose a directory zoxide knows with fzf, and open a session there
     query                                        # Keywords to narrow the list with before it opens
 
+  Bookmarks -- one printable character each, the way vim marks work:
+
   dirsesh bm [char] [-p]                         # Open a session at a bookmark; chooses one with fzf when char is left off
     char                                         # The character the bookmark is keyed by
     -p                                           # Print every bookmark as "char<TAB>directory" instead
@@ -158,6 +186,8 @@ Usage:
   dirsesh bm-status [path]                       # Bookmarks with a tmux session open at them, for a status line
   dirsesh bm-status-init                         # Install the tmux hooks `bm-status` needs (`dirsesh init` too)
 
+  Managing the sessions once they are open -- tmux, rather than `at`:
+
   dirsesh switch [session]                       # Switch to another running session
     session                                      # Switch straight to this one instead of picking
   dirsesh last                                   # Switch back to the session you came from
@@ -165,6 +195,15 @@ Usage:
     session                                      # Kill this one instead of picking
   dirsesh logs [session]                         # Browse the logs a dirsesh configuration wrote
     session                                      # Browse only this session's logs
+
+Every extra that chooses a directory opens a session at it, so none of them
+has to be chained with `dirsesh at`:
+
+  dirsesh git
+  dirsesh bm m
+
+`at` is the one that takes a path rather than finding one, and `bm -p` the one
+that prints rather than opens.
 
 See https://github.com/ryanburda/dirsesh for more documentation
 ```

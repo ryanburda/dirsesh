@@ -9,9 +9,18 @@ using it. `dirsesh at` is happy to sit next to it; nothing in it assumes it is t
 touching your sessions.
 
 `switch`, `last`, `kill` and `logs` are for the other case. If you would rather `dirsesh` be
-your session manager and not just the half that creates them, it ships the other half too. Like
-the [pickers](pickers.md), none of them is wired into `dirsesh at`: they are something you bind,
-one key at a time.
+your session manager and not just the half that creates them, it ships the other half too.
+
+| instead of | you would write |
+| --- | --- |
+| `dirsesh switch` | `tmux switch-client -t "$(tmux list-sessions -F '#{session_name}' \| fzf)"` |
+| `dirsesh last` | `tmux switch-client -l` |
+| `dirsesh kill` | `tmux kill-session -t "$(tmux list-sessions -F '#{session_name}' \| fzf)"` |
+| `dirsesh logs` | `tail -f ~/.local/state/dirsesh/logs/<session>/dirsesh.log` |
+
+What the columns differ by is described below: the session you are on left off `switch`'s list,
+`last`'s fallback ladder, a name with a colon in it surviving, and a log picker that knows which
+sessions have logs at all.
 
 ## Dependencies
 

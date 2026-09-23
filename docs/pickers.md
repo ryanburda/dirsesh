@@ -15,17 +15,26 @@ everything [`at`](../README.md#session-creation) does still happens: a directory
 has a session is switched to rather than opened twice, and a
 [configuration](configured-sessions.md) claiming it still builds the session.
 
-Backing out of a picker opens nothing and exits 0, so pressing escape is a no-op rather than an
-error.
-
-These are opinionated in a way `dirsesh at` deliberately is not, and that stays something you
-opt into, one binding at a time. Anything else that names a directory substitutes into `dirsesh
-at` exactly as it always did:
+Each is opinionated in a way `dirsesh at` deliberately is not, and that stays something you opt
+into, one binding at a time. Anything else that names a directory substitutes into `dirsesh at`
+exactly as these do:
 
 ```bash
 dirsesh at "$(zoxide query -i)"
 dirsesh at "$(git rev-parse --show-toplevel)"
 ```
+
+| instead of | you would write |
+| --- | --- |
+| `dirsesh ls` | `dirsesh at "$(find ~ -type d \| fzf)"` |
+| `dirsesh git` | `dirsesh at "$(find ~ -name .git -prune -print \| sed 's#/\.git$##' \| fzf)"` |
+| `dirsesh git-wt` | `dirsesh at "$(git worktree list \| fzf \| awk '{print $1}')"` |
+| `dirsesh z api` | `dirsesh at "$(zoxide query -- api)"` |
+| `dirsesh zi` | `dirsesh at "$(zoxide query -i)"` |
+
+Those are the shape rather than the equivalent. What the sections below describe — the pruning,
+the depth bounds, the `-brief` counts, backing out without erroring, bare repositories left off
+the list — is the difference between the two columns.
 
 ## Dependencies
 

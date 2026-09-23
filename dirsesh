@@ -8,6 +8,9 @@ Usage:
   dirsesh                                        # Show help message
   dirsesh <command> -help                        # Show what one command does, in detail
 
+CORE -- sessions at directories, and the configuration that builds them.
+This is the whole of what dirsesh is.
+
   dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
     path                                         # The directory to start the session at
     -noconfig                                    # Ignore any configuration claiming that path
@@ -16,6 +19,11 @@ Usage:
   dirsesh config-match [path]                    # Configurations claiming a path (defaults to the current directory)
 
   dirsesh init                                   # Install dirsesh's tmux hooks (put this in tmux.conf)
+
+EXTRAS -- conveniences built on the core. Nothing above calls anything below,
+and each one stands in for a command you would otherwise write by hand.
+
+  Choosing a directory, and opening a session at it:
 
   dirsesh ls                                     # Choose a directory under $HOME, and open a session there
     $DIRSESH_LS_ROOT                             # Where to search, instead of $HOME
@@ -32,6 +40,8 @@ Usage:
   dirsesh zi [query]...                          # Choose a directory zoxide knows with fzf, and open a session there
     query                                        # Keywords to narrow the list with before it opens
 
+  Bookmarks -- one printable character each, the way vim marks work:
+
   dirsesh bm [char] [-p]                         # Open a session at a bookmark; chooses one with fzf when char is left off
     char                                         # The character the bookmark is keyed by
     -p                                           # Print every bookmark as "char<TAB>directory" instead
@@ -42,6 +52,8 @@ Usage:
   dirsesh bm-status [path]                       # Bookmarks with a tmux session open at them, for a status line
   dirsesh bm-status-init                         # Install the tmux hooks `bm-status` needs (`dirsesh init` too)
 
+  Managing the sessions once they are open -- tmux, rather than `at`:
+
   dirsesh switch [session]                       # Switch to another running session
     session                                      # Switch straight to this one instead of picking
   dirsesh last                                   # Switch back to the session you came from
@@ -49,6 +61,15 @@ Usage:
     session                                      # Kill this one instead of picking
   dirsesh logs [session]                         # Browse the logs a dirsesh configuration wrote
     session                                      # Browse only this session's logs
+
+Every extra that chooses a directory opens a session at it, so none of them
+has to be chained with `dirsesh at`:
+
+  dirsesh git
+  dirsesh bm m
+
+`at` is the one that takes a path rather than finding one, and `bm -p` the one
+that prints rather than opens.
 
 See https://github.com/ryanburda/dirsesh for more documentation
 EOF
@@ -74,12 +95,23 @@ It installs both halves:
   session-created, session-closed  redraw the `bm-status` line as soon as a
                                    session opens or closes
 
+The first is core, and is the reason teardown hangs off a hook rather than off
+a command: a session can close without anything asking dirsesh to, and a
+configuration's `start` is owed its `kill` either way.
+
+The second belongs to `bm-status`, which is an extra. It is installed here only
+so that one line in tmux.conf is the whole of dirsesh's setup; it costs nothing
+when no bookmark is set, and `dirsesh bm-status-init` installs it on its own for
+a tmux.conf that wants the status line hooks without the cleanup hook:
+
+  run-shell "dirsesh bm-status-init"
+
+There is no counterpart that installs the core hook alone. `dirsesh init` is
+that command, and it brings the other half with it.
+
 Both are appended, so anything else already on those hooks survives, and both
 drop the hooks a previous run left behind, so re-sourcing tmux.conf does not
 stack duplicates.
-
-`dirsesh bm-status-init` installs the second half on its own, for a tmux.conf
-that wants the status line hooks without the cleanup hook.
 EOF
 }
 
@@ -225,6 +257,13 @@ command="$1"
 shift
 
 case "$command" in
+  ########
+  # core #
+  ########
+  # Sessions at directories, and the configuration that builds them. Nothing
+  # here reaches for anything under `extras` below, with the one exception
+  # noted on `init`.
+
   # at and config-match are two verbs of one program: they share the
   # configuration lookup and the session bookkeeping, so they share a file,
   # and the verb is passed on rather than swallowed here.
@@ -252,6 +291,10 @@ case "$command" in
       notify "Error: 'dirsesh init' takes no arguments"
       exit 1
     else
+      # The one place the core reaches into an extra: `bookmark status-init`
+      # hangs the `bm-status` line off the same two hooks. It is here so that
+      # one line in tmux.conf is the whole of dirsesh's setup, and it costs
+      # nothing when no bookmark is set.
       run_src at init && run_src bookmark status-init
     fi
     ;;
@@ -261,6 +304,14 @@ case "$command" in
     # bakes it into the hook.
     run_src at "$command" "$@"
     ;;
+  ##########
+  # extras #
+  ##########
+  # Conveniences over the core: ways of naming a directory to open a session
+  # at, and the half of a session manager `at` is not. Each stands in for a
+  # command that could be written by hand, none of them is wired into `at`,
+  # and removing any of them leaves the core exactly as it was.
+
   ls)
     run_src_at pick/ls "$@"
     ;;
