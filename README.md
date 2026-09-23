@@ -79,12 +79,13 @@ run-shell "dirsesh init"
 ```
 
 That one line is the whole of dirsesh's tmux setup: it installs the `session-closed` hook
-teardown works through, and the hooks that keep [`bookmark-status`](docs/bookmark.md) current.
+teardown works through, and the hooks that keep [`bm-status`](docs/bookmark.md) current.
 `dirsesh init -help` spells out what lands where.
 
-That last case is the one that matters, and it is why there is no session-killing command to
-parallel `dirsesh at`. A shell exiting closes the session without anything asking `dirsesh` to.
-Sessions killed outside of `dirsesh`'s control are still handled correctly.
+That last case is the one that matters, and it is why teardown is a hook rather than a command
+to parallel `dirsesh at`. A shell exiting closes the session without anything asking `dirsesh`
+to, and `dirsesh kill` is an ordinary `tmux kill-session` that goes through the same hook as
+everything else. Sessions killed outside of `dirsesh`'s control are still handled correctly.
 
 The hook fires for every session tmux closes but it acts only on sessions `dirsesh at` built from
 a configuration. Everything else closes exactly as it would on a server with no `dirsesh` on it.
@@ -101,10 +102,17 @@ a configuration. Everything else closes exactly as it would on a server with no 
 `dirsesh at` creates sessions. Switching between them and killing them are separate jobs that
 plenty of other tools already do well, so if you have one you like, keep using it.
 
-`dirsesh` does ship with a few other commands for a more well rounded experience:
-- [Pickers](docs/pickers.md)
-- [Bookmarks](docs/bookmark.md)
-- [Session Management](docs/session-management.md)
+`dirsesh` does ship with a few other commands for a more well rounded experience. Each of the
+first two chooses a directory and hands it to `dirsesh at` itself, so there is nothing to chain:
+
+```bash
+dirsesh git      # choose a repository under $HOME, and open a session there
+dirsesh bm m     # ...or go straight to the one bookmarked at m
+```
+
+- [Pickers](docs/pickers.md) — `ls`, `git`, `git-wt`
+- [Bookmarks](docs/bookmark.md) — `bm`, `bm-set`, `bm-rm`, `bm-status`
+- [Session Management](docs/session-management.md) — `switch`, `last`, `kill`, `logs`
 
 
 ## Usage
@@ -121,43 +129,47 @@ Usage:
     -noconfig                                    # Ignore any configuration claiming that path
     -name[=NAME]                                 # Name the session; prompts for one if NAME is not given
 
-  dirsesh match [path]                           # Configurations claiming a path (defaults to the current directory)
+  dirsesh config-match [path]                    # Configurations claiming a path (defaults to the current directory)
 
   dirsesh init                                   # Install dirsesh's tmux hooks (put this in tmux.conf)
 
-  dirsesh session-switch [session]               # Switch to another running session
-    session                                      # Switch straight to this one instead of picking
-  dirsesh session-last                           # Switch back to the session you came from
-  dirsesh session-kill [session]                 # Kill a running session
-    session                                      # Kill this one instead of picking
-  dirsesh session-logs [session]                 # Browse the logs a dirsesh configuration wrote
-    session                                      # Browse only this session's logs
-
-  dirsesh bookmark-set <char> [path]             # Bookmark a directory, one printable character each
-    char                                         # The character to bookmark at
-    path                                         # The directory to bookmark (defaults to the current directory)
-  dirsesh bookmark-remove <char>                 # Remove a bookmark
-  dirsesh bookmark-get <char>                    # Print the directory a bookmark points at
-  dirsesh bookmark-pick                          # Choose a bookmark with fzf and print its directory
-  dirsesh bookmark-list                          # Every bookmark as "char<TAB>directory"
-  dirsesh bookmark-status [path]                 # Bookmarks with a tmux session open at them, for a status line
-  dirsesh bookmark-status-init                   # Install the tmux hooks `bookmark-status` needs (`dirsesh init` too)
-
-  dirsesh pick-dir                               # Print a directory under $HOME
-    $DIRSESH_PICK_DIR_ROOT                       # Where to search, instead of $HOME
-    $DIRSESH_PICK_DIR_MAX_DEPTH                  # How deep to search, instead of no limit
-  dirsesh pick-repo [-brief] [-filter] [-fetch]  # Print a git repository under $HOME
+  dirsesh ls                                     # Choose a directory under $HOME, and open a session there
+    $DIRSESH_LS_ROOT                             # Where to search, instead of $HOME
+    $DIRSESH_LS_MAX_DEPTH                        # How deep to search, instead of no limit
+  dirsesh git [-brief] [-filter] [-fetch]        # Choose a git repository under $HOME, and open a session there
     -brief                                       # Show what each repository has waiting, beside its path
     -filter                                      # List only the repositories that have something waiting
     -fetch                                       # Fetch first, so the ahead/behind counts are current
-    $DIRSESH_PICK_REPO_ROOT                      # Where to search, instead of $HOME
-    $DIRSESH_PICK_REPO_MAX_DEPTH                 # How deep to search, instead of 5 levels (0 for no limit)
-  dirsesh pick-worktree                          # Print a worktree of the current repository
+    $DIRSESH_GIT_ROOT                            # Where to search, instead of $HOME
+    $DIRSESH_GIT_MAX_DEPTH                       # How deep to search, instead of 5 levels (0 for no limit)
+  dirsesh git-wt                                 # Choose a worktree of the current repository, and open a session there
 
-The pickers print a path on stdout, so they compose with `dirsesh at`:
+  dirsesh bm [char] [-p]                         # Open a session at a bookmark; chooses one with fzf when char is left off
+    char                                         # The character the bookmark is keyed by
+    -p                                           # Print every bookmark as "char<TAB>directory" instead
+  dirsesh bm-set <char> [path]                   # Bookmark a directory, one printable character each
+    char                                         # The character to bookmark at
+    path                                         # The directory to bookmark (defaults to the current directory)
+  dirsesh bm-rm <char>                           # Remove a bookmark
+  dirsesh bm-status [path]                       # Bookmarks with a tmux session open at them, for a status line
+  dirsesh bm-status-init                         # Install the tmux hooks `bm-status` needs (`dirsesh init` too)
 
-  dirsesh at "$(dirsesh pick-repo)"
-  dirsesh at "$(dirsesh bookmark-get m)"
+  dirsesh switch [session]                       # Switch to another running session
+    session                                      # Switch straight to this one instead of picking
+  dirsesh last                                   # Switch back to the session you came from
+  dirsesh kill [session]                         # Kill a running session
+    session                                      # Kill this one instead of picking
+  dirsesh logs [session]                         # Browse the logs a dirsesh configuration wrote
+    session                                      # Browse only this session's logs
+
+Every command that chooses a directory opens a session at it, so none of them
+has to be chained with `dirsesh at`:
+
+  dirsesh git
+  dirsesh bm m
+
+`at` is the one that takes a path rather than finding one, and `bm -p` the one
+that prints rather than opens.
 
 See https://github.com/ryanburda/dirsesh for more documentation
 ```

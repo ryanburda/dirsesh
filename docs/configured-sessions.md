@@ -439,13 +439,13 @@ caller are then writing into one `STATE_DIR`, so give the files distinct names:
 **NOTE:** An empty `glob` does not mean "match everything": it reads as declaring no
 glob, and the file is skipped. Print `*`.
 
-### Seeing the ranking (`dirsesh match`)
+### Seeing the ranking (`dirsesh config-match`)
 
-Precedence depends on every other file too, so it cannot be read off one file. `dirsesh match`
-answers it for a directory (default: the current one):
+Precedence depends on every other file too, so it cannot be read off one file.
+`dirsesh config-match` answers it for a directory (default: the current one):
 
 ```
-$ dirsesh match ~/code/work/repo
+$ dirsesh config-match ~/code/work/repo
 21	/home/you/.config/dirsesh/work.sh
 16	/home/you/.config/dirsesh/code.sh
 1	/home/you/.config/dirsesh/default.sh
@@ -454,7 +454,7 @@ $ dirsesh match ~/code/work/repo
 One `<score>\t<file>` per claiming configuration, best first. The first line is the
 configuration that would name and build a session at that path. Nothing on stdout means
 nothing claims the directory; that exits non-zero, so
-`dirsesh match "$dir" >/dev/null` is a usable test.
+`dirsesh config-match "$dir" >/dev/null` is a usable test.
 
 It is also the fastest way to find a glob that is not claiming what you think. For example,
 `$HOME/code/project/*` has something after the slash to match, so it claims everything
@@ -495,7 +495,7 @@ Teardown is a tmux hook, installed once from `~/.tmux.conf`:
 run-shell "dirsesh init"
 ```
 
-(`dirsesh init` also installs the hooks that keep the [`bookmark-status`](bookmark.md) line
+(`dirsesh init` also installs the hooks that keep the [`bm-status`](bookmark.md) line
 current. They have nothing to do with configurations; one `init` line in `tmux.conf` is simply
 all of dirsesh's setup.)
 

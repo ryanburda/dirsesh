@@ -1,9 +1,12 @@
 #!/bin/bash
 #
-# session-switch: switch to another running tmux session, chosen with fzf.
+# switch: switch to another running tmux session, chosen with fzf.
 #
-# Usage: dirsesh session-switch [session]
+# Usage: dirsesh switch [session]
 #   session  Switch straight to this session instead of showing the picker.
+#
+# The session being switched from is not a destination, so it is left off the
+# list and named in the header instead.
 
 notify() {
   # Show a message: tmux display-message inside tmux, stderr otherwise.

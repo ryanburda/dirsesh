@@ -17,7 +17,7 @@ _dirsesh_log_sessions() {
 
 _dirsesh_bookmark_chars() {
     # Every bookmark as "char<TAB>directory"; the character is the first field.
-    dirsesh bookmark-list 2>/dev/null | cut -f1
+    dirsesh bm -p 2>/dev/null | cut -f1
 }
 
 _dirsesh_completions() {
@@ -26,11 +26,10 @@ _dirsesh_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cmd="${COMP_WORDS[1]}"
 
-    subcmds="at match init"
-    subcmds="$subcmds session-switch session-last session-kill session-logs"
-    subcmds="$subcmds bookmark-set bookmark-remove bookmark-get bookmark-pick"
-    subcmds="$subcmds bookmark-list bookmark-status bookmark-status-init"
-    subcmds="$subcmds pick-dir pick-repo pick-worktree help"
+    subcmds="at config-match init"
+    subcmds="$subcmds ls git git-wt"
+    subcmds="$subcmds bm bm-set bm-rm bm-status bm-status-init"
+    subcmds="$subcmds switch last kill logs help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -46,29 +45,35 @@ _dirsesh_completions() {
             COMPREPLY=($(compgen -d -W "-noconfig -name -help" -- "$cur"))
             return 0
             ;;
-        match)
+        config-match)
             COMPREPLY=($(compgen -d -W "-help" -- "$cur"))
             return 0
             ;;
-        session-switch | session-kill)
+        switch | kill)
             # The one optional argument is a running session.
             [ "$COMP_CWORD" -eq 2 ] || return 0
             COMPREPLY=($(compgen -W "-help $(_dirsesh_sessions)" -- "$cur"))
             return 0
             ;;
-        session-logs)
+        logs)
             # The one optional argument is a session dirsesh has logged.
             [ "$COMP_CWORD" -eq 2 ] || return 0
             COMPREPLY=($(compgen -W "-help $(_dirsesh_log_sessions)" -- "$cur"))
             return 0
             ;;
-        bookmark-remove | bookmark-get)
+        bm)
+            # A character something is bookmarked at, or -p to print them all.
+            [ "$COMP_CWORD" -eq 2 ] || return 0
+            COMPREPLY=($(compgen -W "-help -p $(_dirsesh_bookmark_chars)" -- "$cur"))
+            return 0
+            ;;
+        bm-rm)
             # The one argument is a character something is bookmarked at.
             [ "$COMP_CWORD" -eq 2 ] || return 0
             COMPREPLY=($(compgen -W "-help $(_dirsesh_bookmark_chars)" -- "$cur"))
             return 0
             ;;
-        bookmark-set)
+        bm-set)
             # The character comes first and is the user's to pick, so only
             # -help is offered there; the directory after it is the one being
             # bookmarked.
@@ -79,15 +84,15 @@ _dirsesh_completions() {
             fi
             return 0
             ;;
-        bookmark-status)
+        bm-status)
             COMPREPLY=($(compgen -W "-help -s --style -c --current-style" -- "$cur"))
             return 0
             ;;
-        pick-repo)
+        git)
             COMPREPLY=($(compgen -W "-help -brief -filter -fetch" -- "$cur"))
             return 0
             ;;
-        init | pick-* | session-last | bookmark-pick | bookmark-list | bookmark-status-init)
+        init | ls | git-wt | last | bm-status-init)
             # No arguments of their own; -help is all there is to offer.
             [ "$COMP_CWORD" -eq 2 ] || return 0
             COMPREPLY=($(compgen -W "-help" -- "$cur"))

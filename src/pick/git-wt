@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# pick-worktree: print the directory of a worktree of the current repository,
-# chosen with fzf.
+# git-wt: choose a worktree of the current repository with fzf, and open a
+# tmux session there.
 #
-# Usage: dirsesh pick-worktree
+# Usage: dirsesh git-wt
 #
 # Must be run from inside a git repository (or another worktree).
 #
@@ -14,11 +14,14 @@
 # A bare repository is skipped -- there is no working tree to sit in -- and the
 # worktrees checked out beside it are listed on their own. A detached HEAD
 # shows as (detached).
+#
+# Backing out opens nothing and exits 0.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
-  # outside it. Never stdout, which is reserved for the path -- and a program
-  # run from a tmux popup loses its stderr when the popup closes.
+  # outside it. Never stdout, which is reserved for the path dirsesh reads
+  # back -- and a program run from a tmux popup loses its stderr when the
+  # popup closes.
   if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
 }
 

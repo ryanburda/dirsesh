@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# pick-repo: print the directory of a git repository under $HOME -- or under
-# $DIRSESH_PICK_REPO_ROOT, if that is set -- chosen with fzf.
+# git: choose a git repository under $HOME -- or under $DIRSESH_GIT_ROOT, if
+# that is set -- with fzf, and open a tmux session there.
 #
-# Usage: dirsesh pick-repo [-brief] [-filter] [-fetch]
+# Usage: dirsesh git [-brief] [-filter] [-fetch]
 #   -brief     Show what each repository has waiting, beside its path
 #   -filter    List only the repositories that have something waiting
 #   -fetch     Fetch every repository first, so the ahead/behind counts are
@@ -13,19 +13,20 @@
 # The three are independent: -brief says what to show, -filter says what to
 # leave out, and -fetch says how current the remote half of both is.
 #
-#   dirsesh pick-repo                          every repository, path only
-#   dirsesh pick-repo -brief                   every repository, and what it has waiting
-#   dirsesh pick-repo -filter                  only the ones with something waiting
-#   dirsesh pick-repo -brief -filter -fetch    both, against fetched remotes
+#   dirsesh git                          every repository, path only
+#   dirsesh git -brief                   every repository, and what it has waiting
+#   dirsesh git -filter                  only the ones with something waiting
+#   dirsesh git -brief -filter -fetch    both, against fetched remotes
 #
-# The walk starts at $HOME, or at $DIRSESH_PICK_REPO_ROOT when that is set,
-# and goes 5 levels down from there unless $DIRSESH_PICK_REPO_MAX_DEPTH says
-# otherwise. It prunes .git, node_modules and every hidden directory, so it
-# stays fast and does not descend into a dependency that vendored its own
-# repository. Repositories are found by their .git rather than by asking each
-# directory whether it is one, which is what makes linked worktrees show up
-# alongside ordinary clones: a worktree carries a .git *file* rather than a
-# directory.
+# Backing out opens nothing and exits 0.
+#
+# The walk starts at $HOME, or at $DIRSESH_GIT_ROOT when that is set, and goes
+# 5 levels down from there unless $DIRSESH_GIT_MAX_DEPTH says otherwise. It
+# prunes .git, node_modules and every hidden directory, so it stays fast and
+# does not descend into a dependency that vendored its own repository.
+# Repositories are found by their .git rather than by asking each directory
+# whether it is one, which is what makes linked worktrees show up alongside
+# ordinary clones: a worktree carries a .git *file* rather than a directory.
 #
 # Only directories with a working tree are listed. A bare repository has none,
 # so `git clone --bare repo.git` never appears, and neither does the container
@@ -64,12 +65,12 @@
 # they are not, at the cost of a network round trip per repository, which is the
 # whole of the wait.
 #
-# DIRSESH_PICK_REPO_ROOT
+# DIRSESH_GIT_ROOT
 #
 # Where the walk starts. $HOME unless this names somewhere else -- ~/code, a
 # work checkout, anywhere with more than one repository under it:
 #
-#   DIRSESH_PICK_REPO_ROOT="$HOME/code" dirsesh pick-repo
+#   DIRSESH_GIT_ROOT="$HOME/code" dirsesh git
 #
 # The depth bound is counted from there, so a narrower root also reaches
 # deeper. Export it from the file your shell reads for *every* shell rather
@@ -77,11 +78,11 @@
 # ~/.profile for bash -- because a tmux popup runs `$SHELL -c`, which reads
 # neither ~/.zshrc nor ~/.bashrc. The same goes for the one below.
 #
-# DIRSESH_PICK_REPO_MAX_DEPTH
+# DIRSESH_GIT_MAX_DEPTH
 #
 # How far down from the root to walk. 5 unless this says otherwise:
 #
-#   DIRSESH_PICK_REPO_MAX_DEPTH=3 dirsesh pick-repo
+#   DIRSESH_GIT_MAX_DEPTH=3 dirsesh git
 #
 # A repository is found by its .git, which sits one level below the repository
 # itself, so 5 reaches a repository four directories down -- $root/a/b/c/repo
@@ -91,17 +92,18 @@
 #
 # 0 turns the limit off and walks as deep as the tree goes:
 #
-#   DIRSESH_PICK_REPO_MAX_DEPTH=0 dirsesh pick-repo
+#   DIRSESH_GIT_MAX_DEPTH=0 dirsesh git
 #
 # The pruning still applies, so this is not the whole tree -- no hidden
 # directory, no node_modules, and nothing below a repository already found --
 # but it is the slowest the walk gets, and on a large root it is slow enough
-# to notice on a picker meant to open on a keypress.
+# to notice on a chooser meant to open on a keypress.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
-  # outside it. Never stdout, which is reserved for the path -- and a program
-  # run from a tmux popup loses its stderr when the popup closes.
+  # outside it. Never stdout, which is reserved for the path dirsesh reads
+  # back -- and a program run from a tmux popup loses its stderr when the
+  # popup closes.
   if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
 }
 
@@ -112,11 +114,11 @@ while [ $# -gt 0 ]; do
     -filter) filter=1 ;;
     -fetch) fetch=1 ;;
     -*)
-      note "Error: Unknown option '$1' for 'dirsesh pick-repo'"
+      note "Error: Unknown option '$1' for 'dirsesh git'"
       exit 1
       ;;
     *)
-      note "Error: 'dirsesh pick-repo' takes no arguments"
+      note "Error: 'dirsesh git' takes no arguments"
       exit 1
       ;;
   esac
@@ -139,16 +141,16 @@ if ! command -v fzf > /dev/null 2>&1; then
   exit 1
 fi
 
-# Where the walk starts: $HOME, or DIRSESH_PICK_REPO_ROOT when it is set.
+# Where the walk starts: $HOME, or DIRSESH_GIT_ROOT when it is set.
 # Resolved with cd/pwd rather than taken as written, so a relative path or a
 # trailing slash still yields paths `dirsesh at` can be handed -- and so a
 # value naming nothing is an error here rather than an empty list further down.
 # CDPATH is cleared because a match in it would both cd elsewhere and print the
 # directory onto the stdout this is being read from.
-root="${DIRSESH_PICK_REPO_ROOT:-$HOME}"
+root="${DIRSESH_GIT_ROOT:-$HOME}"
 if ! root=$(CDPATH= cd -- "$root" 2> /dev/null && pwd); then
-  if [ -n "$DIRSESH_PICK_REPO_ROOT" ]; then
-    note "Error: DIRSESH_PICK_REPO_ROOT is not a directory: '$DIRSESH_PICK_REPO_ROOT'"
+  if [ -n "$DIRSESH_GIT_ROOT" ]; then
+    note "Error: DIRSESH_GIT_ROOT is not a directory: '$DIRSESH_GIT_ROOT'"
   else
     note "Error: \$HOME is not a directory: '$HOME'"
   fi
@@ -162,9 +164,9 @@ fi
 # 0 means no limit, and is the reason this is an array rather than a number:
 # find has no -maxdepth value for "as deep as it goes", so the option is left
 # off the command line entirely instead.
-depth="${DIRSESH_PICK_REPO_MAX_DEPTH:-5}"
+depth="${DIRSESH_GIT_MAX_DEPTH:-5}"
 if ! [[ "$depth" =~ ^[0-9]{1,4}$ ]]; then
-  note "Error: DIRSESH_PICK_REPO_MAX_DEPTH must be a whole number from 0 to 9999, 0 for no limit: '$DIRSESH_PICK_REPO_MAX_DEPTH'"
+  note "Error: DIRSESH_GIT_MAX_DEPTH must be a whole number from 0 to 9999, 0 for no limit: '$DIRSESH_GIT_MAX_DEPTH'"
   exit 1
 fi
 
@@ -284,7 +286,7 @@ repo_paths() {
   #
   # `! -path "$root"` exempts the starting point from that last prune, because a
   # root that is itself hidden would otherwise be pruned before the walk began
-  # and nothing would be found: a DIRSESH_PICK_REPO_ROOT of ~/.config, or of a
+  # and nothing would be found: a DIRSESH_GIT_ROOT of ~/.config, or of a
   # worktree under a hidden directory, is a reasonable thing to want.
   #
   # Matching .git by name rather than asking each directory whether it has one,
@@ -323,8 +325,8 @@ repo_paths() {
 
 # Nothing to show and nothing to leave out: the paths are the whole answer, and
 # no repository has to be opened to produce them. Streamed straight into fzf,
-# rather than collected first, so the picker is on screen and usable while the
-# walk behind it is still going -- the shape `pick-dir` has always had.
+# rather than collected first, so the list is on screen and usable while the
+# walk behind it is still going -- the shape `dirsesh ls` has always had.
 if [ -z "$brief" ] && [ -z "$filter" ]; then
   # Streaming gives up the one thing collecting the list gave for free: knowing
   # it was empty before fzf was handed it. fzf's own "no match" status cannot

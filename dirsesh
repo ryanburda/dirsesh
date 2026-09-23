@@ -13,43 +13,47 @@ Usage:
     -noconfig                                    # Ignore any configuration claiming that path
     -name[=NAME]                                 # Name the session; prompts for one if NAME is not given
 
-  dirsesh match [path]                           # Configurations claiming a path (defaults to the current directory)
+  dirsesh config-match [path]                    # Configurations claiming a path (defaults to the current directory)
 
   dirsesh init                                   # Install dirsesh's tmux hooks (put this in tmux.conf)
 
-  dirsesh session-switch [session]               # Switch to another running session
-    session                                      # Switch straight to this one instead of picking
-  dirsesh session-last                           # Switch back to the session you came from
-  dirsesh session-kill [session]                 # Kill a running session
-    session                                      # Kill this one instead of picking
-  dirsesh session-logs [session]                 # Browse the logs a dirsesh configuration wrote
-    session                                      # Browse only this session's logs
-
-  dirsesh bookmark-set <char> [path]             # Bookmark a directory, one printable character each
-    char                                         # The character to bookmark at
-    path                                         # The directory to bookmark (defaults to the current directory)
-  dirsesh bookmark-remove <char>                 # Remove a bookmark
-  dirsesh bookmark-get <char>                    # Print the directory a bookmark points at
-  dirsesh bookmark-pick                          # Choose a bookmark with fzf and print its directory
-  dirsesh bookmark-list                          # Every bookmark as "char<TAB>directory"
-  dirsesh bookmark-status [path]                 # Bookmarks with a tmux session open at them, for a status line
-  dirsesh bookmark-status-init                   # Install the tmux hooks `bookmark-status` needs (`dirsesh init` too)
-
-  dirsesh pick-dir                               # Print a directory under $HOME
-    $DIRSESH_PICK_DIR_ROOT                       # Where to search, instead of $HOME
-    $DIRSESH_PICK_DIR_MAX_DEPTH                  # How deep to search, instead of no limit
-  dirsesh pick-repo [-brief] [-filter] [-fetch]  # Print a git repository under $HOME
+  dirsesh ls                                     # Choose a directory under $HOME, and open a session there
+    $DIRSESH_LS_ROOT                             # Where to search, instead of $HOME
+    $DIRSESH_LS_MAX_DEPTH                        # How deep to search, instead of no limit
+  dirsesh git [-brief] [-filter] [-fetch]        # Choose a git repository under $HOME, and open a session there
     -brief                                       # Show what each repository has waiting, beside its path
     -filter                                      # List only the repositories that have something waiting
     -fetch                                       # Fetch first, so the ahead/behind counts are current
-    $DIRSESH_PICK_REPO_ROOT                      # Where to search, instead of $HOME
-    $DIRSESH_PICK_REPO_MAX_DEPTH                 # How deep to search, instead of 5 levels (0 for no limit)
-  dirsesh pick-worktree                          # Print a worktree of the current repository
+    $DIRSESH_GIT_ROOT                            # Where to search, instead of $HOME
+    $DIRSESH_GIT_MAX_DEPTH                       # How deep to search, instead of 5 levels (0 for no limit)
+  dirsesh git-wt                                 # Choose a worktree of the current repository, and open a session there
 
-The pickers print a path on stdout, so they compose with `dirsesh at`:
+  dirsesh bm [char] [-p]                         # Open a session at a bookmark; chooses one with fzf when char is left off
+    char                                         # The character the bookmark is keyed by
+    -p                                           # Print every bookmark as "char<TAB>directory" instead
+  dirsesh bm-set <char> [path]                   # Bookmark a directory, one printable character each
+    char                                         # The character to bookmark at
+    path                                         # The directory to bookmark (defaults to the current directory)
+  dirsesh bm-rm <char>                           # Remove a bookmark
+  dirsesh bm-status [path]                       # Bookmarks with a tmux session open at them, for a status line
+  dirsesh bm-status-init                         # Install the tmux hooks `bm-status` needs (`dirsesh init` too)
 
-  dirsesh at "$(dirsesh pick-repo)"
-  dirsesh at "$(dirsesh bookmark-get m)"
+  dirsesh switch [session]                       # Switch to another running session
+    session                                      # Switch straight to this one instead of picking
+  dirsesh last                                   # Switch back to the session you came from
+  dirsesh kill [session]                         # Kill a running session
+    session                                      # Kill this one instead of picking
+  dirsesh logs [session]                         # Browse the logs a dirsesh configuration wrote
+    session                                      # Browse only this session's logs
+
+Every command that chooses a directory opens a session at it, so none of them
+has to be chained with `dirsesh at`:
+
+  dirsesh git
+  dirsesh bm m
+
+`at` is the one that takes a path rather than finding one, and `bm -p` the one
+that prints rather than opens.
 
 See https://github.com/ryanburda/dirsesh for more documentation
 EOF
@@ -72,15 +76,15 @@ It installs both halves:
 
   session-closed                   runs a configuration's `kill` when a session
                                    it built closes, however it closes
-  session-created, session-closed  redraw the `bookmark-status` line as soon as
-                                   a session opens or closes
+  session-created, session-closed  redraw the `bm-status` line as soon as a
+                                   session opens or closes
 
 Both are appended, so anything else already on those hooks survives, and both
 drop the hooks a previous run left behind, so re-sourcing tmux.conf does not
 stack duplicates.
 
-`dirsesh bookmark-status-init` installs the second half on its own, for a
-tmux.conf that wants the status line hooks without the cleanup hook.
+`dirsesh bm-status-init` installs the second half on its own, for a tmux.conf
+that wants the status line hooks without the cleanup hook.
 EOF
 }
 
@@ -142,8 +146,8 @@ src_help() {
 
 run_src() {
   # Run a script under src/, passing on any remaining arguments. A subcommand
-  # named <group>-<name> lives a directory down as src/<group>/<name>;
-  # anything else sits directly under src/ under the subcommand's own name.
+  # backed by a script in a group directory names it as <group>/<name>;
+  # anything else sits directly under src/ under its own name.
   #
   # Args:
   #   $1: name: the script's path relative to src/
@@ -174,6 +178,48 @@ run_src() {
   bash "$script" "$@"
 }
 
+run_src_at() {
+  # Run a chooser under src/ and open a session at the directory it printed.
+  # This is the whole of what makes `dirsesh git` a command rather than
+  # something you substitute into `dirsesh at` yourself.
+  #
+  # Args:
+  #   $1: name: the script's path relative to src/
+  #   $@: the arguments to pass it
+  #
+  # The scripts under src/ still do one thing each: they choose a directory
+  # and print it. Joining that answer to `at` is done here, once, rather than
+  # in every one of them -- none of them has to find its way back to this
+  # program, and a chooser stays testable by running it and reading what it
+  # printed.
+  local name="$1"
+  shift
+
+  # run_src answers -help itself, but only when the flag is in the position it
+  # looks at; passing it on rather than reading it here keeps that one rule.
+  if [ "$1" = "-help" ]; then
+    run_src "$name" -help
+    return 0
+  fi
+
+  # Status and answer are both wanted, so they are taken in two steps: an
+  # assignment's status is the substitution's, but only when nothing else is
+  # declared on the same line.
+  local answer status
+  answer=$(run_src "$name" "$@")
+  status=$?
+
+  # The chooser has already said what went wrong -- on stderr, or through
+  # tmux -- so this passes its status on without a message of its own.
+  [ "$status" -eq 0 ] || exit "$status"
+
+  # Backing out of a chooser prints nothing and succeeds. Nothing was chosen,
+  # so nothing is opened, and that is not a failure either.
+  [ -n "$answer" ] || exit 0
+
+  run_src at at "$answer"
+}
+
 # Parse arguments
 if [ $# -eq 0 ]; then
   usage
@@ -184,10 +230,10 @@ command="$1"
 shift
 
 case "$command" in
-  # at and match are two verbs of one program: they share the configuration
-  # lookup and the session bookkeeping, so they share a file, and the verb is
-  # passed on rather than swallowed here.
-  at | match)
+  # at and config-match are two verbs of one program: they share the
+  # configuration lookup and the session bookkeeping, so they share a file,
+  # and the verb is passed on rather than swallowed here.
+  at | config-match)
     # Passing the verb on puts -help in second position, which is not where
     # run_src looks for it, so it is answered here instead.
     if [ "$1" = "-help" ]; then
@@ -220,47 +266,57 @@ case "$command" in
     # bakes it into the hook.
     run_src at "$command" "$@"
     ;;
-  bookmark-set | bookmark-remove | bookmark-get | bookmark-pick \
-    | bookmark-list | bookmark-status | bookmark-status-init)
-    # The bookmark verbs are one program the way at and match are: they share
-    # the bookmark store, the character a bookmark is keyed by and the status
-    # line refresh, so they share a file, and the verb is passed on rather
-    # than swallowed here.
+  ls)
+    run_src_at pick/ls "$@"
+    ;;
+  git)
+    run_src_at pick/git "$@"
+    ;;
+  git-wt)
+    run_src_at pick/git-wt "$@"
+    ;;
+  bm | bm-set | bm-rm | bm-status | bm-status-init)
+    # The bookmark verbs are one program the way at and config-match are:
+    # they share the bookmark store, the character a bookmark is keyed by and
+    # the status line refresh, so they share a file, and the verb is passed on
+    # rather than swallowed here.
     #
     # Passing the verb on puts -help in second position, which is not where
     # run_src looks for it, so it is answered here instead.
     if [ "$1" = "-help" ]; then
       run_src bookmark -help
+    elif [ "$command" != "bm" ]; then
+      run_src bookmark "${command#bm-}" "$@"
+    elif [ "$1" = "-p" ]; then
+      # -p prints the bookmarks rather than opening one, so it is the one
+      # bookmark answer that does not go to `at`. Which of the two it is has
+      # to be known before the script runs, so the flag is read here; the
+      # script still checks what follows it.
+      run_src bookmark list "${@:2}"
     else
-      run_src bookmark "${command#bookmark-}" "$@"
+      # The only bookmark verb whose answer is a directory: `bm m` opens a
+      # session at what m bookmarks, `bm` chooses which one first.
+      run_src_at bookmark go "$@"
     fi
     ;;
   _bookmark-entries | _bookmark-refresh-status)
-    # Internal: the first rebuilds `bookmark-pick`'s rows for its reload
-    # binding, the second is what the hooks `bookmark-status-init` installs
-    # call back on. Both are spelled out again in src/bookmark, which is what
-    # bakes them into the binding and the hook.
+    # Internal: the first rebuilds the `bm` list's rows for its reload
+    # binding, the second is what the hooks `bm-status-init` installs call
+    # back on. Both
+    # are spelled out again in src/bookmark, which is what bakes them into the
+    # binding and the hook.
     run_src bookmark "$command" "$@"
     ;;
-  pick-dir)
-    run_src pick/dir "$@"
-    ;;
-  pick-repo)
-    run_src pick/repo "$@"
-    ;;
-  pick-worktree)
-    run_src pick/worktree "$@"
-    ;;
-  session-kill)
+  kill)
     run_src session/kill "$@"
     ;;
-  session-last)
+  last)
     run_src session/last "$@"
     ;;
-  session-logs)
+  logs)
     run_src session/logs "$@"
     ;;
-  session-switch)
+  switch)
     run_src session/switch "$@"
     ;;
   help | -help)

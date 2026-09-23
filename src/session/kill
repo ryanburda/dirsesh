@@ -1,9 +1,12 @@
 #!/bin/bash
 #
-# session-kill: kill a running tmux session, chosen with fzf.
+# kill: kill a running tmux session, chosen with fzf.
 #
-# Usage: dirsesh session-kill [session]
+# Usage: dirsesh kill [session]
 #   session  Kill this session instead of showing the picker.
+#
+# Every session is listed, the current one included: killing the session you
+# are sitting in is a thing you may well mean to do.
 
 notify() {
   # Show a message: tmux display-message inside tmux, stderr otherwise.

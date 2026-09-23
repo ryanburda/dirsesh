@@ -1,11 +1,12 @@
 # Bookmarks
 
-The `dirsesh bookmark-*` commands map a character to a directory, the way vim marks do.
+The `dirsesh bm*` commands map a character to a directory, the way vim marks do, and open a
+tmux session there.
 
 ```bash
-dirsesh bookmark-set m ~/code/api      # m is now ~/code/api
-dirsesh bookmark-get m                 # /home/you/code/api
-cd "$(dirsesh bookmark-get m)"
+dirsesh bm-set m ~/code/api      # m is now ~/code/api
+dirsesh bm m                     # a session at ~/code/api
+dirsesh bm                       # ...or at one you choose from the list
 ```
 
 Bookmarks are for the handful of directories you return to constantly. There is no ranking,
@@ -13,43 +14,39 @@ no history and no decay: `m` points where you put it until you put it somewhere 
 is the difference between this and the [fuzzy pickers](pickers.md) beside it, and the reason
 both are worth having.
 
-`bookmark-get` and `bookmark-pick` print a directory on stdout and nothing else, which is the
-same interface the pickers have, and the whole interface to everything downstream:
-
-```bash
-cd "$(dirsesh bookmark-pick)"                  # choose one with fzf
-dirsesh at "$(dirsesh bookmark-get m)"         # a tmux session at whatever m bookmarks
-dirsesh at "$(dirsesh bookmark-pick)"          # ...or at one you choose
-```
+`bm` is `dirsesh at` with the path filled in, so everything
+[`at`](../README.md#session-creation) does still happens: a bookmark whose directory already has
+a session switches to it rather than opening a second one, and a
+[configuration](configured-sessions.md) claiming that directory still builds the session.
 
 ## Dependencies
 
-- [`fzf`](https://github.com/junegunn/fzf), for `bookmark-pick`
-- `tmux`, for `bookmark-status` and `bookmark-status-init`
+- [`fzf`](https://github.com/junegunn/fzf), for `bm` without a character
+- `tmux`, for `bm-status` and `bm-status-init`
 
 Everything else runs with a shell and `awk`.
 
 ## Usage
 
 ```bash
-dirsesh bookmark-set <char> [path]     # Bookmark a directory (path defaults to the current directory)
-dirsesh bookmark-remove <char>         # Remove a bookmark
-dirsesh bookmark-get <char>            # Print the directory a bookmark points at
-dirsesh bookmark-pick                  # Choose a bookmark with fzf and print its directory
-dirsesh bookmark-list                  # Every bookmark as "char<TAB>directory"
-dirsesh bookmark-status [path]         # Bookmarks with a tmux session open at them, for a status line
-dirsesh bookmark-status-init           # Install the tmux hooks `bookmark-status` needs (put this in tmux.conf)
+dirsesh bm [char] [-p]         # Open a session at a bookmark
+  char                         # The character the bookmark is keyed by; chooses one with fzf when left off
+  -p                           # Print every bookmark as "char<TAB>directory" instead
+dirsesh bm-set <char> [path]   # Bookmark a directory (path defaults to the current directory)
+dirsesh bm-rm <char>           # Remove a bookmark
+dirsesh bm-status [path]       # Bookmarks with a tmux session open at them, for a status line
+dirsesh bm-status-init         # Install the tmux hooks `bm-status` needs (put this in tmux.conf)
 ```
 
-`dirsesh bookmark-<command> -help` prints the same thing — they are one program and share one
-`-help`.
+`dirsesh bm -help`, and `bm-<command> -help`, print the same thing — they are one program and
+share one `-help`.
 
 ### Setting and removing
 
 ```bash
-dirsesh bookmark-set m                 # bookmark the current directory at m
-dirsesh bookmark-set m ~/code/api      # ...or one you name
-dirsesh bookmark-remove m
+dirsesh bm-set m                 # bookmark the current directory at m
+dirsesh bm-set m ~/code/api      # ...or one you name
+dirsesh bm-rm m
 ```
 
 A bookmark is keyed by a single printable ASCII character — any of `!` through `~` except `/`
@@ -59,46 +56,44 @@ is already set replaces it, no confirmation, the same way `m` does in vim. The p
 to an absolute one with symlinks followed, so a bookmark keeps pointing at the same directory
 whatever you were standing in when you set it.
 
-### Reading
+### Going to one
 
-`bookmark-get` prints one directory and nothing else, so it composes:
+`dirsesh bm m` opens a session at whatever `m` bookmarks. It exits non-zero and opens nothing if
+the character is not bookmarked, so a typo says so rather than sending you somewhere.
 
-```bash
-cd "$(dirsesh bookmark-get m)"
-ls "$(dirsesh bookmark-get m)"
-```
+`dirsesh bm` with no character opens the bookmarks in fzf, and starts a session at the one you
+choose. `ctrl-x` removes the bookmark under the cursor and rebuilds the list, which is how a
+bookmark you have stopped using gets cleaned up without having to remember which character it
+was.
 
-It exits non-zero and says nothing on stdout if the character is not bookmarked, so
-`cd "$(dirsesh bookmark-get z)"` fails rather than sending you home.
+Backing out of that list opens nothing and exits 0.
 
-`bookmark-list` is the whole store, one `char<TAB>directory` line at a time, sorted by character — for
-scripts, and for looking at:
+### Listing them
+
+`bm -p` is the one bookmark command that prints rather than opens: the whole store, one
+`char<TAB>directory` line at a time, sorted by character — for scripts, and for looking at:
 
 ```console
-$ dirsesh bookmark-list
+$ dirsesh bm -p
 c	/home/you/.config
 m	/home/you/code/api
 n	/home/you/.config/nvim
 ```
 
-### `bookmark-pick`
+It is also the way to hand a bookmark to something that is not `dirsesh`:
 
-Lists the bookmarks in fzf and prints the directory of the one you choose. `ctrl-x` removes the
-bookmark under the cursor and rebuilds the list, which is how a bookmark you have stopped using
-gets cleaned up without having to remember which character it was.
+```bash
+cd "$(dirsesh bm -p | awk -F'\t' '$1 == "m" { print $2 }')"
+```
 
-Backing out prints nothing and exits 0 — the way the other pickers decline to answer — so
-`dirsesh at "$(dirsesh bookmark-pick)"` opens nothing when you press escape, rather than
-erroring.
-
-### Status line (`bookmark-status`)
+### Status line (`bm-status`)
 
 Prints the characters of the bookmarks that have a **tmux session open** at their directory, the
 current session's styled differently. Bookmarks with nothing open are left out, so the line stays
 short and reads as "where can I already jump to":
 
 ```tmux
-set -g status-right "#(dirsesh bookmark-status '#{session_path}')"
+set -g status-right "#(dirsesh bm-status '#{session_path}')"
 ```
 
 Two flags set the styles, written without their `#[]` wrapper: `-s`/`--style` for the other open
@@ -106,11 +101,11 @@ sessions (default `dim`) and `-c`/`--current-style` for the current one (default
 `fg=yellow,bold`):
 
 ```tmux
-set -g status-right "#(dirsesh bookmark-status '#{session_path}' -s 'fg=colour244' -c 'fg=black,bg=blue,bold')"
+set -g status-right "#(dirsesh bm-status '#{session_path}' -s 'fg=colour244' -c 'fg=black,bg=blue,bold')"
 ```
 
 The path argument matters: tmux runs a `#()` command without a client and shares one run's
-output between all of them, so `bookmark-status` cannot ask which session is current and get a
+output between all of them, so `bm-status` cannot ask which session is current and get a
 per-client answer. Passing `#{session_path}` is what makes the highlight follow each client.
 
 A status line is only redrawn every `status-interval` seconds, so a session opened or killed
@@ -121,18 +116,18 @@ client, and `dirsesh init` installs them — so a `tmux.conf` that already has
 run-shell "dirsesh init"
 ```
 
-needs nothing further. `bookmark-status-init` installs those two on their own, without the
-session cleanup hook that comes with them:
+needs nothing further. `bm-status-init` installs those two on their own, without the session
+cleanup hook that comes with them:
 
 ```tmux
-run-shell "dirsesh bookmark-status-init"
+run-shell "dirsesh bm-status-init"
 ```
 
 Either way it hangs a refresh off `session-created` and `session-closed`, appending to both so
 anything else on them survives — `dirsesh init`'s own `session-closed` hook included — and
 dropping the hooks a previous run left behind so re-sourcing `tmux.conf` does not stack
-duplicates. The hooks are only needed for the status line; nothing else in `bookmark-*` goes
-through one. Setting and removing a bookmark refresh the line on their own.
+duplicates. The hooks are only needed for the status line; nothing else in `bm*` goes through
+one. Setting and removing a bookmark refresh the line on their own.
 
 > **NOTE:** if your `tmux.conf` sets `session-created` or `session-closed` with a bare
 > `set-hook -g`, put `run-shell "dirsesh init"` after it — a later `set-hook -g` clears what
@@ -140,41 +135,36 @@ through one. Setting and removing a bookmark refresh the line on their own.
 
 ## tmux keybindings
 
-`bookmark-set`, `bookmark-remove` and `bookmark-get` take the character as an argument — none
-of them has a keypress prompt of its own. Inside tmux that is what `command-prompt -1` is for,
-which reaches all of them by a single keypress:
+These are shell commands, not tmux commands, so there is nothing to type at tmux's own command
+prompt. Bind them instead — and where a character is wanted, let the binding ask for it.
+
+`bm`, `bm-set` and `bm-rm` take that character as an argument and have no keypress prompt of
+their own. `command-prompt -1` is what asks, and it reaches all three with a single keypress:
 
 ```tmux
-bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"dirsesh bookmark-set '%%%'\""
-bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh bookmark-remove '%%%'\""
-bind-key \' command-prompt -1 -p "Go to bookmark:" 'run-shell -b "dirsesh at \"$(dirsesh bookmark-get \"%%%\")\""'
-bind-key b popup -E 'dirsesh at "$(dirsesh bookmark-pick)"'
+bind-key m  command-prompt -1 -p "Set bookmark:"    "run-shell -b \"dirsesh bm-set '%%%'\""
+bind-key M  command-prompt -1 -p "Remove bookmark:" "run-shell -b \"dirsesh bm-rm '%%%'\""
+bind-key \' command-prompt -1 -p "Go to bookmark:"  "run-shell -b \"dirsesh bm '%%%'\""
+bind-key b  popup -E 'dirsesh bm'
 ```
 
-These ask in tmux's status line, so they need no popup: `-1` takes exactly one key and `%%%`
-substitutes it with quotation marks escaped. `'` and `;` are the two keys that cannot be
-answered with — `;` is tmux's own command separator — so do not bookmark at those.
+`-1` takes exactly one key and `%%%` substitutes it with quotation marks escaped, so these ask
+in tmux's status line and need no popup. `'` and `;` are the two keys that cannot be answered
+with — `;` is tmux's own command separator — so do not bookmark at those.
 
 Escape backs out of the prompt. `-1` hands back whatever key was pressed, escape included, so
-backing out reaches `bookmark-set`, `bookmark-remove` and `bookmark-get` as a character no
-bookmark can be keyed by: they take it for what it is, do nothing and exit 0, the same way
-`bookmark-pick` declines. Nothing is set, removed or opened, and no error is shown.
+backing out reaches `bm`, `bm-set` and `bm-rm` as a character no bookmark can be keyed by: they
+take it for what it is, do nothing and exit 0. Nothing is set, removed or opened, and no error
+is shown.
 
-The substitution in the last binding is quoted — `at \"$(...)\"` — for the same reason it is
-everywhere else: unquoted, the empty output of a `bookmark-get` you backed out of would vanish
-before `dirsesh at` saw it, and `at` would report a missing directory instead of doing nothing.
-Its outer single quotes are what keep those inner ones readable; tmux takes a single-quoted
-command as written.
+The last binding needs no prompt at all: `dirsesh bm` with no character opens the fzf list, and
+a popup is where that belongs.
 
-The last two lines send the directory to `dirsesh`, which opens a tmux session there. Anything
-that takes a path works the same way; bookmarks themselves do not know what tmux is, apart from
-`bookmark-status`.
-
-`bookmark-set` bound this way bookmarks the directory the *session* is rooted at. To bookmark
-the current pane's directory instead:
+`bm-set` bound this way bookmarks the directory the *session* is rooted at. To bookmark the
+current pane's directory instead:
 
 ```tmux
-bind-key m command-prompt -1 -p "Set bookmark:" "run-shell -b \"dirsesh bookmark-set '%%%' '#{pane_current_path}'\""
+bind-key m command-prompt -1 -p "Set bookmark:" "run-shell -b \"dirsesh bm-set '%%%' '#{pane_current_path}'\""
 ```
 
 As with the pickers, a bookmark is worth binding twice — once in `tmux.conf` for when tmux is
@@ -183,7 +173,7 @@ running, and once in your shell for when no tmux server is:
 ```zsh
 # ~/.zshrc
 
-alias b='dirsesh at "$(dirsesh bookmark-pick)"'
+alias b='dirsesh bm'
 ```
 
 > **Troubleshooting:** tmux's `run-shell` and `popup -E` run in a non-interactive, non-login
@@ -193,7 +183,7 @@ alias b='dirsesh at "$(dirsesh bookmark-pick)"'
 > - **bash:** set `BASH_ENV` to a file that configures your PATH, or use `/etc/environment`.
 >
 > Fallback: use the full path in the bindings, e.g.
-> `run-shell -b "~/.local/share/dirsesh/dirsesh bookmark-set '%%%'"`.
+> `run-shell -b "~/.local/share/dirsesh/dirsesh bm-set '%%%'"`.
 
 ## Storage
 
@@ -216,5 +206,5 @@ contents are empty, is not a bookmark and is ignored.
 or per-machine set of bookmarks:
 
 ```bash
-DIRSESH_BOOKMARKS_DIR=~/.config/work-bookmarks dirsesh bookmark-set m ~/work/api
+DIRSESH_BOOKMARKS_DIR=~/.config/work-bookmarks dirsesh bm-set m ~/work/api
 ```

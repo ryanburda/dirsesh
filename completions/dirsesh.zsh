@@ -18,22 +18,20 @@
 _dirsesh_commands() {
     local commands=(
         'at:Start a session at a directory'
-        'match:Configurations claiming a path, best first'
-        'init:Install the tmux session-closed hook'
-        'session-switch:Switch to another running session'
-        'session-last:Switch back to the session you came from'
-        'session-kill:Kill a running session'
-        'session-logs:Browse the logs a dirsesh configuration wrote'
-        'bookmark-set:Bookmark a directory at a character'
-        'bookmark-remove:Remove a bookmark'
-        'bookmark-get:Print the directory a bookmark points at'
-        'bookmark-pick:Choose a bookmark with fzf and print its directory'
-        'bookmark-list:Every bookmark as "char<TAB>directory"'
-        'bookmark-status:Bookmarks with a tmux session open at them, for a status line'
-        'bookmark-status-init:Install the tmux hooks `bookmark-status` needs'
-        'pick-dir:Print a directory under $HOME'
-        'pick-repo:Print a git repository under $HOME'
-        'pick-worktree:Print a worktree of the current repository'
+        'config-match:Configurations claiming a path, best first'
+        'init:Install the tmux hooks dirsesh works through'
+        'ls:Open a session at a directory under $HOME'
+        'git:Open a session at a git repository under $HOME'
+        'git-wt:Open a session at a worktree of the current repository'
+        'bm:Open a session at a bookmark (-p to print them all)'
+        'bm-set:Bookmark a directory at a character'
+        'bm-rm:Remove a bookmark'
+        'bm-status:Bookmarks with a tmux session open at them, for a status line'
+        'bm-status-init:Install the tmux hooks `bm-status` needs'
+        'switch:Switch to another running session'
+        'last:Switch back to the session you came from'
+        'kill:Kill a running session'
+        'logs:Browse the logs a dirsesh configuration wrote'
         'help:Show help message'
     )
 
@@ -56,8 +54,8 @@ _dirsesh_log_sessions() {
 }
 
 _dirsesh_bookmark_chars() {
-    # The picker's own rows: character, directory, then the column it
-    # displays -- which makes a fine completion description.
+    # The `bm` list's rows: character, directory, then the column it displays
+    # -- which makes a fine completion description.
     local -a bookmarks
     bookmarks=(${(f)"$(dirsesh _bookmark-entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 ":" d }')"})
     _describe 'bookmark' bookmarks
@@ -86,29 +84,35 @@ _dirsesh() {
                 'options:option:(-noconfig -name)'
             (( CURRENT == 2 )) && compadd -- -help
             ;;
-        match)
+        config-match)
             _files -/
             (( CURRENT == 2 )) && compadd -- -help
             ;;
-        session-switch | session-kill)
+        switch | kill)
             if (( CURRENT == 2 )); then
                 _dirsesh_sessions
                 compadd -- -help
             fi
             ;;
-        session-logs)
+        logs)
             if (( CURRENT == 2 )); then
                 _dirsesh_log_sessions
                 compadd -- -help
             fi
             ;;
-        bookmark-remove | bookmark-get)
+        bm)
+            if (( CURRENT == 2 )); then
+                _dirsesh_bookmark_chars
+                compadd -- -help -p
+            fi
+            ;;
+        bm-rm)
             if (( CURRENT == 2 )); then
                 _dirsesh_bookmark_chars
                 compadd -- -help
             fi
             ;;
-        bookmark-set)
+        bm-set)
             # The character comes first and is the user's to pick; the
             # directory after it is the one being bookmarked.
             if (( CURRENT == 2 )); then
@@ -117,18 +121,18 @@ _dirsesh() {
                 _files -/
             fi
             ;;
-        bookmark-status)
-            _values -s ' ' 'bookmark-status options' '-s' '--style' '-c' '--current-style'
+        bm-status)
+            _values -s ' ' 'bm-status options' '-s' '--style' '-c' '--current-style'
             (( CURRENT == 2 )) && compadd -- -help
             ;;
-        pick-repo)
-            _values -s ' ' 'pick-repo options' \
+        git)
+            _values -s ' ' 'git options' \
                 '-brief[show what each repository has waiting]' \
                 '-filter[list only repositories that have something waiting]' \
                 '-fetch[fetch first, so the ahead/behind counts are current]'
             (( CURRENT == 2 )) && compadd -- -help
             ;;
-        init | pick-* | session-last | bookmark-pick | bookmark-list | bookmark-status-init)
+        init | ls | git-wt | last | bm-status-init)
             (( CURRENT == 2 )) && compadd -- -help
             ;;
     esac
