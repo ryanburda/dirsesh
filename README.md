@@ -17,11 +17,11 @@ The `path` argument can be:
 dirsesh at "$HOME/code/project_name"
 # your root directory
 dirsesh at /
+# your current directory
+dirsesh at .
 
 # the result of a command:
 #
-# your current working directory
-dirsesh at "$(pwd)"
 # the root of the repo you are currently in
 dirsesh at "$(git rev-parse --show-toplevel)"
 # a fresh scratch directory
@@ -33,8 +33,8 @@ dirsesh at "$(mktemp -d)"
 dirsesh at "$(find $HOME -type d | fzf)"
 # fuzzy find worktrees of the current git repo
 dirsesh at "$(git worktree list | fzf | awk '{print $1}')"
-# Search your most-used directories
-dirsesh at "$(zoxide query -i)"
+# type something and start a session wherever zoxide takes you
+(printf 'z '; read -r q; z "$q" && dirsesh at .)
 ```
 
 ### Session creation
