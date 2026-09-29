@@ -44,6 +44,11 @@
 # $DIRSESH_BOOKMARKS_DIR, which is what to set for a per-project or per-machine
 # set of bookmarks.
 #
+# A mistake is reported on tmux's status line, and exits 0, inside tmux; on
+# stderr, and non-zero, outside it. Every verb here is reached by a key
+# binding, which runs it through `run-shell` -- and `run-shell` answers a
+# non-zero status by covering the pane with a second copy of the same news.
+#
 # See docs/bookmark.md for the tmux keybindings and the status line.
 
 BOOKMARKS_DIR="${DIRSESH_BOOKMARKS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh/bookmarks}"
@@ -81,6 +86,29 @@ notify() {
   else
     echo "$msg" >&2
   fi
+}
+
+die() {
+  # Report a failure and stop, with a status tmux will not report a second
+  # time.
+  #
+  # Inside tmux the message has just gone to the status line, which is where a
+  # bookmark's errors belong: every verb here is reached by a key binding, and
+  # the binding runs it through `run-shell`. tmux answers a non-zero status
+  # from one of those by dropping the pane the key was pressed in into view
+  # mode over "'<command>' returned 1" -- the same news, in the one place it
+  # has to be dismissed by hand, on top of whatever was being read there. So
+  # the status is 0: the status line message is the error report.
+  #
+  # Outside tmux the message went to stderr and the status is all a caller
+  # has, so it stays non-zero.
+  #
+  # Args:
+  #   $1: msg: what went wrong
+  notify "$1"
+
+  [ -n "$TMUX" ] && exit 0
+  exit 1
 }
 
 dirsesh_path() {
@@ -136,8 +164,7 @@ check_bookmark_char() {
   local char="$1"
 
   if ! is_bookmark_char "$char"; then
-    notify "Error: a bookmark is keyed by a single printable character, not '/' or '.'"
-    exit 1
+    die "Error: a bookmark is keyed by a single printable character, not '/' or '.'"
   fi
 }
 
@@ -230,6 +257,10 @@ install_status_hook() {
   # them; any hook a previous `bm-status-init` left on it is dropped
   # first, so re-sourcing tmux.conf does not stack duplicates.
   #
+  # Stops the whole script when the hook cannot be set, rather than reporting
+  # back to its caller: both calls are the last thing status-init does, and
+  # `die` is what decides the status either way.
+  #
   # Args:
   #   $1: hook: the tmux hook name
   #   $2: self: absolute path to dirsesh
@@ -244,8 +275,7 @@ install_status_hook() {
     | sed -n "s/^$hook\\[\\([0-9]\\{1,\\}\\)\\].*$HOOK_REFRESH.*/\\1/p")
 
   if ! tmux set-hook -ga "$hook" "run-shell -b \"'$self' $HOOK_REFRESH\""; then
-    notify "Error: could not set the tmux '$hook' hook"
-    return 1
+    die "Error: could not set the tmux '$hook' hook"
   fi
 }
 
@@ -267,8 +297,7 @@ bookmark_set() {
   # answer, and nothing is bookmarked -- checked before the path is, so that
   # backing out is a no-op whatever directory the prompt was opened from.
   if [ $# -eq 0 ]; then
-    notify "Error: 'bm-set' needs a character to bookmark ${path/#"$HOME"/\~} at"
-    exit 1
+    die "Error: 'bm-set' needs a character to bookmark ${path/#"$HOME"/\~} at"
   fi
 
   is_cancelled "$char" && exit 0
@@ -278,15 +307,13 @@ bookmark_set() {
   path="${path/#\~/$HOME}"
 
   if [ ! -d "$path" ]; then
-    notify "Error: Directory '$path' does not exist"
-    exit 1
+    die "Error: Directory '$path' does not exist"
   fi
 
   path=$(cd "$path" && pwd -P)
 
   if [ -z "$path" ]; then
-    notify "Error: Directory '${2:-$PWD}' could not be resolved"
-    exit 1
+    die "Error: Directory '${2:-$PWD}' could not be resolved"
   fi
 
   # Rejected rather than escaped: a control character would have to survive
@@ -294,8 +321,7 @@ bookmark_set() {
   # one.
   case "$path" in
     *[[:cntrl:]]*)
-      notify "Error: '$path' cannot be bookmarked: its path contains a control character"
-      exit 1
+      die "Error: '$path' cannot be bookmarked: its path contains a control character"
       ;;
   esac
 
@@ -319,8 +345,7 @@ bookmark_rm() {
   local char="$1"
 
   if [ $# -eq 0 ]; then
-    notify "Error: 'bm-rm' needs a character"
-    exit 1
+    die "Error: 'bm-rm' needs a character"
   fi
 
   is_cancelled "$char" && exit 0
@@ -328,8 +353,7 @@ bookmark_rm() {
   check_bookmark_char "$char"
 
   if ! bookmark_directory "$char" > /dev/null; then
-    notify "Error: No bookmark '$char'"
-    exit 1
+    die "Error: No bookmark '$char'"
   fi
 
   rm -f "$BOOKMARKS_DIR/$char"
@@ -357,8 +381,7 @@ bookmark_get() {
 
   local dir
   if ! dir=$(bookmark_directory "$char"); then
-    notify "Error: No bookmark '$char'"
-    exit 1
+    die "Error: No bookmark '$char'"
   fi
 
   printf '%s\n' "$dir"
@@ -368,16 +391,14 @@ bookmark_pick() {
   # Choose a bookmark with fzf and print its directory. Backing out prints
   # nothing and succeeds, the way any chooser declines to answer.
   if ! command -v fzf > /dev/null 2>&1; then
-    notify "Error: 'bm' needs fzf on PATH to choose a bookmark"
-    exit 1
+    die "Error: 'bm' needs fzf on PATH to choose a bookmark"
   fi
 
   local entries
   entries=$(bookmark_entries)
 
   if [ -z "$entries" ]; then
-    notify "No bookmarks set"
-    exit 1
+    die "No bookmarks set"
   fi
 
   # ctrl-x removes the bookmark under the cursor, then rebuilds the list from
@@ -416,8 +437,7 @@ bookmark_go() {
   # Args:
   #   $1: char: the bookmark character to go to (default: choose from the list)
   if [ $# -gt 1 ]; then
-    notify "Error: 'bm' takes one character"
-    exit 1
+    die "Error: 'bm' takes one character"
   fi
 
   if [ $# -eq 0 ]; then
@@ -446,8 +466,7 @@ bookmark_status() {
     case "$1" in
       -s | --style | -c | --current-style)
         if [ $# -lt 2 ]; then
-          notify "Error: '$1' needs a tmux style"
-          exit 1
+          die "Error: '$1' needs a tmux style"
         fi
         case "$1" in
           -s | --style) style="$2" ;;
@@ -456,13 +475,11 @@ bookmark_status() {
         shift 2
         ;;
       -*)
-        notify "Error: Unknown option '$1' for 'bm-status'"
-        exit 1
+        die "Error: Unknown option '$1' for 'bm-status'"
         ;;
       *)
         if [ -n "$current_given" ]; then
-          notify "Error: Too many arguments for 'bm-status'"
-          exit 1
+          die "Error: Too many arguments for 'bm-status'"
         fi
         current="$1"
         current_given=1
@@ -526,12 +543,11 @@ status_init() {
   # session-closed fires, so a hook set on the session never runs at all.
   local self
   if ! self=$(dirsesh_path); then
-    notify "Error: could not resolve the path to dirsesh"
-    exit 1
+    die "Error: could not resolve the path to dirsesh"
   fi
 
-  install_status_hook session-created "$self" || exit 1
-  install_status_hook session-closed "$self" || exit 1
+  install_status_hook session-created "$self"
+  install_status_hook session-closed "$self"
 }
 
 # Parse arguments
@@ -557,8 +573,7 @@ case "$command" in
     # `bm -p`: dirsesh reads the -p, because whether the answer is a directory
     # to open decides that before this script is even run.
     if [ $# -gt 0 ]; then
-      notify "Error: 'bm -p' takes nothing else"
-      exit 1
+      die "Error: 'bm -p' takes nothing else"
     fi
     read_bookmarks
     ;;
@@ -567,8 +582,7 @@ case "$command" in
     ;;
   status-init)
     if [ $# -gt 0 ]; then
-      notify "Error: 'bm-status-init' takes no arguments"
-      exit 1
+      die "Error: 'bm-status-init' takes no arguments"
     fi
     status_init
     ;;

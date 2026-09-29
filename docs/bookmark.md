@@ -70,8 +70,9 @@ whatever you were standing in when you set it.
 
 ### Going to one
 
-`dirsesh bm m` opens a session at whatever `m` bookmarks. It exits non-zero and opens nothing if
-the character is not bookmarked, so a typo says so rather than sending you somewhere.
+`dirsesh bm m` opens a session at whatever `m` bookmarks. If the character is not bookmarked it
+says so and opens nothing, rather than sending you somewhere. Outside tmux that is a message on
+stderr and a non-zero exit status; inside it, see [Where errors go](#where-errors-go).
 
 `dirsesh bm` with no character opens the bookmarks in fzf, and starts a session at the one you
 choose. `ctrl-x` removes the bookmark under the cursor and rebuilds the list, which is how a
@@ -187,6 +188,17 @@ running, and once in your shell for when no tmux server is:
 
 alias b='dirsesh bm'
 ```
+
+### Where errors go
+
+Inside tmux, every `bm*` command reports a mistake with `display-message` — on the status line,
+where tmux's own errors appear — and **exits 0**. That is deliberate: `run-shell` answers a
+non-zero status by dropping the pane the key was pressed in into view mode over `'<command>'
+returned 1`, so a mistyped bookmark character would leave the same news twice, once on the
+status line and once on top of whatever you were reading, needing `q` to dismiss.
+
+So a binding needs no `|| true`, and nothing covers the pane. Outside tmux the message goes to
+stderr and the exit status is non-zero, which is what a script has to go on.
 
 > **Troubleshooting:** tmux's `run-shell` and `popup -E` run in a non-interactive, non-login
 > shell, so `dirsesh` must be on PATH when that shell starts.
