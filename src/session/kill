@@ -59,10 +59,10 @@ if [ -z "$session" ]; then
           branch="-"
         fi
       fi
-      printf '%s\t%-*s  \033[32m%s\033[0m\n' "$name" "$max_name" "$name" "$branch"
+      printf '%s\t%-*s  \033[33m%s\033[0m\n' "$name" "$max_name" "$name" "$branch"
     done)
 
-    header="$(printf '%-*s  %s' "$max_name" "$name_label" "$branch_label")"
+    header="$(printf '\033[2m%-*s\033[0m  \033[2;33m%s\033[0m' "$max_name" "$name_label" "$branch_label")"
 
     session=$(echo "$fzf_input" \
       | fzf --ansi --with-nth=2 --delimiter=$'\t' --cycle --prompt "Kill Session > " --header "$header" \

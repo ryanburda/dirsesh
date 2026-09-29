@@ -19,6 +19,24 @@ notify() {
   fi
 }
 
+branch_of() {
+  # The git branch a directory is on: "(detached)" for a detached HEAD, "-"
+  # for a directory that is not a git repository at all.
+  #
+  # Args:
+  #   $1: path
+  local path="$1" branch
+  branch=$(git -C "$path" branch --show-current 2>/dev/null)
+  if [ -z "$branch" ]; then
+    if git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
+      branch="(detached)"
+    else
+      branch="-"
+    fi
+  fi
+  echo "$branch"
+}
+
 show_branch=1
 if [ "$1" = "-b" ]; then
   show_branch=""
@@ -43,16 +61,15 @@ if [ -z "$session" ]; then
   # The session being switched from is not a destination: it is dropped from
   # the list and named in the header instead. Nothing is dropped outside
   # tmux, where there is no session to switch from.
-  current=""
-  [ -n "$TMUX" ] && current=$(tmux display-message -p '#{session_name}' 2>/dev/null)
+  current="" current_path=""
+  if [ -n "$TMUX" ]; then
+    current=$(tmux display-message -p '#{session_name}' 2>/dev/null)
+    current_path=$(tmux display-message -p '#{session_path}' 2>/dev/null)
+  fi
 
-  # fzf only honors the last --header given, so the "on <session>" line and
-  # the -b column header build up in one string rather than two flags.
-  header=""
   fzf_args=(--cycle --prompt "Session > ")
   if [ -n "$current" ]; then
     session_data=$(printf '%s\n' "$session_data" | awk -F'\t' -v cur="$current" '$1 != cur')
-    header="$(printf ':: on \033[33m%s\033[0m' "$current")"
 
     if [ -z "$session_data" ]; then
       notify "No other active sessions"
@@ -63,34 +80,33 @@ if [ -z "$session" ]; then
   if [ -n "$show_branch" ]; then
     # The session name rides along in a first column fzf is told not to
     # display, so it can be recovered after the row is styled and padded for
-    # the branch column beside it.
+    # the branch column beside it. The current session is folded into the
+    # width too, so its header row lines up with the columns below it even
+    # when its name is the longest one around.
     name_label='session' branch_label='branch'
     max_name=${#name_label}
+    [ -n "$current" ] && (( ${#current} > max_name )) && max_name=${#current}
     while IFS=$'\t' read -r name _; do
       (( ${#name} > max_name )) && max_name=${#name}
     done <<< "$session_data"
 
     fzf_input=$(printf '%s\n' "$session_data" | while IFS=$'\t' read -r name path; do
-      branch=$(git -C "$path" branch --show-current 2>/dev/null)
-      if [ -z "$branch" ]; then
-        if git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
-          branch="(detached)"
-        else
-          branch="-"
-        fi
-      fi
-      printf '%s\t%-*s  \033[32m%s\033[0m\n' "$name" "$max_name" "$name" "$branch"
+      printf '%s\t%-*s  \033[33m%s\033[0m\n' "$name" "$max_name" "$name" "$(branch_of "$path")"
     done)
 
-    column_header="$(printf '%-*s  %s' "$max_name" "$name_label" "$branch_label")"
-    header="${header:+$header$'\n'}$column_header"
+    header="$(printf '\033[2m%-*s\033[0m  \033[2;33m%s\033[0m' "$max_name" "$name_label" "$branch_label")"
+    if [ -n "$current" ]; then
+      header="$(printf '%-*s  \033[33m%s\033[0m' "$max_name" "$current" "$(branch_of "$current_path")")"$'\n'"$header"
+    fi
     fzf_args+=(--header "$header")
 
     session=$(echo "$fzf_input" \
       | fzf --ansi --with-nth=2 --delimiter=$'\t' "${fzf_args[@]}" \
       | cut -f1)
   else
-    [ -n "$header" ] && fzf_args+=(--header "$header")
+    if [ -n "$current" ]; then
+      fzf_args+=(--header "$(printf '\033[33m%s\033[0m' "$current")")
+    fi
     sessions=$(printf '%s\n' "$session_data" | cut -f1)
     session=$(echo "$sessions" | fzf "${fzf_args[@]}")
   fi
