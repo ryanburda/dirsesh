@@ -29,10 +29,12 @@ sessions have logs at all.
 ## Usage
 
 ```bash
-dirsesh switch [session]                # Switch to another running session
+dirsesh switch [-b] [session]           # Switch to another running session
+  -b                                    # Hide the git branch each session's directory is on
   session                               # Switch straight to this one instead of picking
 dirsesh last                            # Switch back to the session you came from
-dirsesh kill [session]                  # Kill a running session
+dirsesh kill [-b] [session]             # Kill a running session
+  -b                                    # Hide the git branch each session's directory is on
   session                               # Kill this one instead of picking
 dirsesh logs [session]                  # Browse the logs a dirsesh configuration wrote
   session                               # Browse only this session's logs

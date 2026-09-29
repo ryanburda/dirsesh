@@ -2,7 +2,8 @@
 #
 # kill: kill a running tmux session, chosen with fzf.
 #
-# Usage: dirsesh kill [session]
+# Usage: dirsesh kill [-b] [session]
+#   -b       Hide the git branch each session's directory is on
 #   session  Kill this session instead of showing the picker.
 #
 # Every session is listed, the current one included: killing the session you
@@ -18,20 +19,58 @@ notify() {
   fi
 }
 
+show_branch=1
+if [ "$1" = "-b" ]; then
+  show_branch=""
+  shift
+fi
+
 session="$1"
 
 # No session given: pick one with fzf.
 if [ -z "$session" ]; then
   # Formatted rather than cut out of `tmux ls`, which would split a name at
-  # its first colon.
-  sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  # its first colon. The path rides along whether or not -b was given, since
+  # it is what a branch lookup needs and dropping it for the plain case would
+  # only complicate the code below for no real saving.
+  session_data=$(tmux list-sessions -F '#{session_name}	#{session_path}' 2>/dev/null)
 
-  if [ -z "$sessions" ]; then
+  if [ -z "$session_data" ]; then
     notify "No active sessions to kill"
     exit 1
   fi
 
-  session=$(echo "$sessions" | fzf --cycle --prompt "Kill Session > ")
+  if [ -n "$show_branch" ]; then
+    # The session name rides along in a first column fzf is told not to
+    # display, so it can be recovered after the row is styled and padded for
+    # the branch column beside it.
+    name_label='session' branch_label='branch'
+    max_name=${#name_label}
+    while IFS=$'\t' read -r name _; do
+      (( ${#name} > max_name )) && max_name=${#name}
+    done <<< "$session_data"
+
+    fzf_input=$(printf '%s\n' "$session_data" | while IFS=$'\t' read -r name path; do
+      branch=$(git -C "$path" branch --show-current 2>/dev/null)
+      if [ -z "$branch" ]; then
+        if git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
+          branch="(detached)"
+        else
+          branch="-"
+        fi
+      fi
+      printf '%s\t%-*s  \033[32m%s\033[0m\n' "$name" "$max_name" "$name" "$branch"
+    done)
+
+    header="$(printf '%-*s  %s' "$max_name" "$name_label" "$branch_label")"
+
+    session=$(echo "$fzf_input" \
+      | fzf --ansi --with-nth=2 --delimiter=$'\t' --cycle --prompt "Kill Session > " --header "$header" \
+      | cut -f1)
+  else
+    sessions=$(printf '%s\n' "$session_data" | cut -f1)
+    session=$(echo "$sessions" | fzf --cycle --prompt "Kill Session > ")
+  fi
 
   [ -n "$session" ] || exit 0
 fi

@@ -91,9 +91,12 @@ _dirsesh() {
             (( CURRENT == 2 )) && compadd -- -help
             ;;
         switch | kill)
+            # -b can precede the session name, so it may land in position 2 or 3.
             if (( CURRENT == 2 )); then
                 _dirsesh_sessions
-                compadd -- -help
+                compadd -- -help -b
+            elif (( CURRENT == 3 )) && [[ "$line[2]" == "-b" ]]; then
+                _dirsesh_sessions
             fi
             ;;
         logs)

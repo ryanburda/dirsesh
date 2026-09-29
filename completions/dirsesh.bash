@@ -50,9 +50,15 @@ _dirsesh_completions() {
             return 0
             ;;
         switch | kill)
-            # The one optional argument is a running session.
-            [ "$COMP_CWORD" -eq 2 ] || return 0
-            COMPREPLY=($(compgen -W "-help $(_dirsesh_sessions)" -- "$cur"))
+            # -b can precede the session name, so it may land in position 2 or 3.
+            case "$COMP_CWORD" in
+                2)
+                    COMPREPLY=($(compgen -W "-help -b $(_dirsesh_sessions)" -- "$cur"))
+                    ;;
+                3)
+                    [ "${COMP_WORDS[2]}" = "-b" ] && COMPREPLY=($(compgen -W "$(_dirsesh_sessions)" -- "$cur"))
+                    ;;
+            esac
             return 0
             ;;
         logs)
