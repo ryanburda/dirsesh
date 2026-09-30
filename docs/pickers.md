@@ -124,6 +124,20 @@ which is what makes linked worktrees show up alongside ordinary clones — a wor
 bare repository never appears, and neither does the `~/code/project` holding a `.bare` and its
 worktrees. The worktrees themselves are listed, and are what you want a session at.
 
+Each repository is listed beside the branch it has checked out, the same two columns
+[`git-wt`](#git-wt) shows:
+
+```console
+path                      branch
+/home/you/code/api        main
+/home/you/code/dotfiles   main
+/home/you/code/site       draft
+/home/you/code/tools      main
+```
+
+A detached HEAD shows as `(detached)`, and a repository with no commits yet shows the branch it
+would commit onto.
+
 `dirsesh git` has three flags, and they are independent. `-brief` says what to show — each
 repository's branch and what it has waiting, `↑` unpushed, `↓` waiting upstream, `+`/`-`
 uncommitted, `?` untracked. `-filter` says what to leave out — everything with nothing waiting.
@@ -131,14 +145,14 @@ uncommitted, `?` untracked. `-filter` says what to leave out — everything with
 repository, which is the whole of the wait:
 
 ```bash
-dirsesh git                          # every repository, path only
+dirsesh git                          # every repository, path and branch
 dirsesh git -brief                   # every repository, and what it has waiting
 dirsesh git -filter                  # only the ones with something waiting
 dirsesh git -brief -filter           # both, read from the working tree
 dirsesh git -brief -filter -fetch    # ...and against fetched remotes
 ```
 
-`-brief` looks like this:
+`-brief` widens that second column into the branch and what the repository has waiting:
 
 ```console
 /home/you/code/api        main ↑2 +41 -7

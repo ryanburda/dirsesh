@@ -13,7 +13,7 @@
 # The three are independent: -brief says what to show, -filter says what to
 # leave out, and -fetch says how current the remote half of both is.
 #
-#   dirsesh git                          every repository, path only
+#   dirsesh git                          every repository, path and branch
 #   dirsesh git -brief                   every repository, and what it has waiting
 #   dirsesh git -filter                  only the ones with something waiting
 #   dirsesh git -brief -filter -fetch    both, against fetched remotes
@@ -32,6 +32,18 @@
 # so `git clone --bare repo.git` never appears, and neither does the container
 # of a bare checkout -- the ~/code/project holding .bare and its worktrees. The
 # worktrees themselves are listed, and are what you want a session at.
+#
+# Every repository is listed beside the branch it has checked out, the same two
+# columns `dirsesh git-wt` shows:
+#
+#   path                      branch
+#   /home/you/code/api        main
+#   /home/you/code/dotfiles   main
+#   /home/you/code/site       draft
+#
+# A detached HEAD shows as (detached), and a repository with no commits yet
+# shows the branch it would commit onto. -brief widens that second column into
+# the branch and what the repository has waiting beside it.
 #
 # -brief
 #
@@ -273,8 +285,17 @@ git_repo_row() {
 
 repo_paths() {
   # Every repository under the root, one path per line, printed as each one is
-  # confirmed rather than all together at the end. Whoever reads this can start
-  # showing repositories while the walk behind it is still running.
+  # confirmed rather than all together at the end -- though both callers now
+  # collect the whole list before showing it, because both line their columns
+  # up against the longest path.
+  #
+  # With an argument, each line carries the checked-out branch after a tab --
+  # "(detached)" off a branch, and the unborn branch's own name in a repository
+  # with no commits yet, which is why this asks symbolic-ref rather than
+  # rev-parse --abbrev-ref: the latter has no HEAD to resolve before the first
+  # commit and fails. It is a second git process per repository, so only the
+  # caller that displays it asks: -brief reads the branch out of the
+  # `git status` it already runs.
   #
   # -maxdepth bounds the walk under the root, unless it was turned off above;
   # -prune on .git and node_modules stops the descent right after printing a
@@ -319,39 +340,61 @@ repo_paths() {
     | sed 's#/\.git$##' \
     | LC_ALL=C sort -u \
     | tr '\n' '\0' \
-    | xargs -0 -P 8 -n 1 \
-            bash -c '[ "$(git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] && printf "%s\n" "$1" || true' _
+    | PICK_REPO_BRANCH="$1" xargs -0 -P 8 -n 1 \
+            bash -c '
+              # xargs with nothing to hand it still runs the command once, with
+              # no argument -- and `git -C ""` would then answer for whatever
+              # directory this was started from, so a root with no repositories
+              # under it would report one.
+              [ -n "$1" ] || exit 0
+              [ "$(git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || exit 0
+              if [ -z "$PICK_REPO_BRANCH" ]; then
+                printf "%s\n" "$1"
+                exit 0
+              fi
+              branch=$(git -C "$1" symbolic-ref --quiet --short HEAD 2>/dev/null) \
+                || branch="(detached)"
+              printf "%s\t%s\n" "$1" "$branch"
+            ' _
 }
 
-# Nothing to show and nothing to leave out: the paths are the whole answer, and
-# no repository has to be opened to produce them. Streamed straight into fzf,
-# rather than collected first, so the list is on screen and usable while the
-# walk behind it is still going -- the shape `dirsesh ls` has always had.
+# Nothing to show and nothing to leave out: the path and the branch checked out
+# there are the whole answer. The list is collected rather than streamed into
+# fzf, because the path column cannot be padded until the longest path is known
+# -- and the walk that finds it is milliseconds, the branch one git process per
+# repository beside the check that already confirmed it was one. Sorted here
+# rather than as it is found: the checks run in parallel and finish out of order.
 if [ -z "$brief" ] && [ -z "$filter" ]; then
-  # Streaming gives up the one thing collecting the list gave for free: knowing
-  # it was empty before fzf was handed it. fzf's own "no match" status cannot
-  # stand in, because a query the person typed that matches nothing returns that
-  # too. So the paths are teed past on their way to fzf and the file is what is
-  # asked afterwards. --exit-0 is what keeps an empty list from opening a picker
-  # on nothing first: with no match for the initial (empty) query, fzf exits
-  # rather than starting.
-  listed=$(mktemp) || {
-    note "Error: could not create a temporary file"
-    exit 1
-  }
-  trap 'rm -f "$listed"' EXIT
+  rows=$(repo_paths branch | LC_ALL=C sort)
 
-  selected=$(repo_paths | tee "$listed" | fzf --cycle --exit-0 --prompt "Repo > ")
-
-  if [ ! -s "$listed" ]; then
+  if [ -z "$rows" ]; then
     note "No git repositories found under $root"
     exit 1
   fi
 
+  # Header labels are measured alongside the values so a short column still
+  # widens to fit them. fzf indents --header by the two columns its pointer
+  # takes, so the header lines up with the rows on its own.
+  path_label='path' branch_label='branch'
+  max_path=${#path_label}
+  while IFS=$'\t' read -r dir branch; do
+    (( ${#dir} > max_path )) && max_path=${#dir}
+  done <<< "$rows"
+
+  # The path rides along in a first column fzf is told not to display, so the
+  # branch can be coloured without the selection having to be parsed back out.
+  fzf_input=$(while IFS=$'\t' read -r dir branch; do
+    printf '%s\t%-*s  \033[32m%s\033[0m\n' "$dir" "$max_path" "$dir" "$branch"
+  done <<< "$rows")
+  header=$(printf '%-*s  %s' "$max_path" "$path_label" "$branch_label")
+
+  selected=$(printf '%s\n' "$fzf_input" \
+    | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "Repo > " --header "$header")
+
   # Backing out is not a failure: say nothing and succeed.
   [ -n "$selected" ] || exit 0
 
-  printf '%s\n' "$selected"
+  printf '%s\n' "${selected%%	*}"
   exit 0
 fi
 
