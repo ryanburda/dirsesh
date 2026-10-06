@@ -92,7 +92,7 @@ maxdepth=(-maxdepth "$depth")
 # nothing: DIRSESH_LS_ROOT="$HOME/.config" is a reasonable thing to want.
 selected=$(find "$root" "${maxdepth[@]}" \
   \( ! -path "$root" -a -name '.*' \) -prune -o -type d -print \
-  | fzf --cycle --prompt "Directory > ")
+  | fzf --cycle --header "directory")
 
 # Backing out is not a failure: say nothing and succeed.
 [ -n "$selected" ] || exit 0
