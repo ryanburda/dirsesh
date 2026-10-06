@@ -3,15 +3,23 @@
 # git: choose a git repository under $HOME -- or under $DIRSESH_GIT_ROOT, if
 # that is set -- with fzf, and open a tmux session there.
 #
-# Usage: dirsesh git [-brief] [-filter] [-fetch]
-#   -brief     Show what each repository has waiting, beside its path
-#   -filter    List only the repositories that have something waiting
-#   -fetch     Fetch every repository first, so the ahead/behind counts are
-#              current. Only means something with -brief or -filter, and is
-#              what makes either slow.
+# Usage: dirsesh git [-brief] [-filter] [-fetch] [-p] [-max-width=N] [-max-height=N]
+#   -brief         Show what each repository has waiting, beside its path
+#   -filter        List only the repositories that have something waiting
+#   -fetch         Fetch every repository first, so the ahead/behind counts are
+#                  current. Only means something with -brief or -filter, and is
+#                  what makes either slow.
+#   -p             Show the picker in a tmux popup, sized to fit the
+#                  repositories listed
+#   -max-width=N   Cap the popup at N columns rather than growing to fit every
+#                  path and branch (and, under -brief, what each repository
+#                  has waiting)
+#   -max-height=N  Cap the popup at N rows rather than growing to fit every
+#                  repository
 #
-# The three are independent: -brief says what to show, -filter says what to
-# leave out, and -fetch says how current the remote half of both is.
+# The three display flags are independent: -brief says what to show, -filter
+# says what to leave out, and -fetch says how current the remote half of both
+# is.
 #
 #   dirsesh git                          every repository, path and branch
 #   dirsesh git -brief                   every repository, and what it has waiting
@@ -19,6 +27,15 @@
 #   dirsesh git -brief -filter -fetch    both, against fetched remotes
 #
 # Backing out opens nothing and exits 0.
+#
+# -p
+#
+# Sized to what it is about to list rather than a fixed size: taller with more
+# repositories, wider with longer paths, branches or -brief's waiting counts.
+# -max-width and -max-height cap that growth -- past either, fzf's own
+# scrolling and truncation take over rather than the popup outgrowing the
+# screen. Both require -p, since neither means anything without a popup to
+# size. The popup can also never exceed the client's own size, capped or not.
 #
 # The walk starts at $HOME, or at $DIRSESH_GIT_ROOT when that is set, and goes
 # 5 levels down from there unless $DIRSESH_GIT_MAX_DEPTH says otherwise. It
@@ -119,12 +136,21 @@ note() {
   if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
 }
 
-brief="" filter="" fetch=""
+strip_ansi() {
+  # $1 with its color codes removed, so a popup can be sized by what a row
+  # actually displays rather than by the bytes it takes to say so.
+  sed $'s/\x1b\\[[0-9;]*m//g' <<< "$1"
+}
+
+brief="" filter="" fetch="" popup="" max_width="" max_height=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -brief) brief=1 ;;
     -filter) filter=1 ;;
     -fetch) fetch=1 ;;
+    -p) popup=1 ;;
+    -max-width=*) max_width="${1#-max-width=}" ;;
+    -max-height=*) max_height="${1#-max-height=}" ;;
     -*)
       note "Error: Unknown option '$1' for 'dirsesh git'"
       exit 1
@@ -143,6 +169,23 @@ done
 # them: the flag that was left out is the one that says what to do with it.
 if [ -n "$fetch" ] && [ -z "$brief" ] && [ -z "$filter" ]; then
   note "Error: '-fetch' only means something with '-brief' or '-filter'"
+  exit 1
+fi
+
+if { [ -n "$max_width" ] || [ -n "$max_height" ]; } && [ -z "$popup" ]; then
+  note "Error: '-max-width'/'-max-height' only mean something with '-p'"
+  exit 1
+fi
+if [ -n "$max_width" ] && ! [[ "$max_width" =~ ^[0-9]{1,4}$ ]]; then
+  note "Error: -max-width must be a whole number from 0 to 9999: '$max_width'"
+  exit 1
+fi
+if [ -n "$max_height" ] && ! [[ "$max_height" =~ ^[0-9]{1,4}$ ]]; then
+  note "Error: -max-height must be a whole number from 0 to 9999: '$max_height'"
+  exit 1
+fi
+if [ -n "$popup" ] && [ -z "$TMUX" ]; then
+  note "Error: -p requires running inside tmux"
   exit 1
 fi
 
@@ -388,6 +431,54 @@ if [ -z "$brief" ] && [ -z "$filter" ]; then
   done <<< "$rows")
   header=$(printf '\033[2m%-*s\033[0m  \033[2;32m%s\033[0m' "$max_path" "$path_label" "$branch_label")
 
+  # -p: size a popup to fit what is about to be listed and hand the actual
+  # picking to a plain `git` run inside it. -p is not forwarded, so that
+  # inner run falls straight through to the fzf below instead of opening a
+  # popup of its own.
+  if [ -n "$popup" ]; then
+    # Width: the longest row fzf will draw, measured off what is actually
+    # displayed -- the header included, since a short list under a long
+    # label is still bound by the label. +6 on top of that: 2 columns for
+    # the popup's border, 3 for fzf's own chrome (a gutter down the left of
+    # every row plus a column of slack on the right, measured against fzf
+    # 0.74's default theme), and 1 more to spare.
+    content_width=0
+    count=0
+    while IFS=$'\t' read -r _ display; do
+      plain=$(strip_ansi "$display")
+      (( ${#plain} > content_width )) && content_width=${#plain}
+      count=$((count + 1))
+    done <<< "$fzf_input"
+    header_plain=$(strip_ansi "$header")
+    (( ${#header_plain} > content_width )) && content_width=${#header_plain}
+    popup_width=$((content_width + 6))
+
+    # Height: one row per repository, the header row, fzf's search line,
+    # and -- separately -- the match-count line fzf draws above it by
+    # default. Falling short by even one row drops a repository off the
+    # bottom of the list and puts fzf into scroll mode, which is also what
+    # eats into the width above. +2 for the popup's border, +1 more for a
+    # blank row of breathing room at the bottom -- the -max-height cap
+    # below still wins over it whenever there is no room to spare for it.
+    popup_height=$((count + 1 + 2 + 2 + 1))
+
+    # A sane minimum regardless of content, then the caller's own cap if it
+    # set one -- even below the minimum, since that is an explicit request
+    # rather than an edge case to guard against -- and finally the client's
+    # actual size, which nothing can be asked to exceed.
+    (( popup_width < 20 )) && popup_width=20
+    (( popup_height < 6 )) && popup_height=6
+    [ -n "$max_width" ] && (( popup_width > max_width )) && popup_width=$max_width
+    [ -n "$max_height" ] && (( popup_height > max_height )) && popup_height=$max_height
+    client_width=$(tmux display-message -p '#{client_width}')
+    client_height=$(tmux display-message -p '#{client_height}')
+    (( popup_width > client_width )) && popup_width=$client_width
+    (( popup_height > client_height )) && popup_height=$client_height
+
+    tmux popup -w "$popup_width" -h "$popup_height" -E "dirsesh git"
+    exit $?
+  fi
+
   selected=$(printf '%s\n' "$fzf_input" \
     | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --header "$header")
 
@@ -438,8 +529,57 @@ if [ -n "$filter" ]; then
     "$changed" "$checked")")
 fi
 
+prompt_text='Repo > '
+
+# -p: size a popup to fit what is about to be listed and hand the actual
+# picking to a plain `git -brief`/`-filter` run inside it. -p is not
+# forwarded, so that inner run falls straight through to the fzf below
+# instead of opening a popup of its own. Unlike the plain path+branch list
+# above, nothing here is padded to a shared column width -- -brief's waiting
+# counts vary row to row -- so each row is measured on its own rather than
+# off a single max_path/max_branch.
+if [ -n "$popup" ]; then
+  content_width=${#prompt_text}
+  count=0
+  while IFS=$'\t' read -r _ display; do
+    plain=$(strip_ansi "$display")
+    (( ${#plain} > content_width )) && content_width=${#plain}
+    count=$((count + 1))
+  done <<< "$rows"
+
+  header_lines=0
+  if [ -n "$filter" ]; then
+    header_lines=1
+    header_plain=$(strip_ansi "${fzf_header[1]}")
+    (( ${#header_plain} > content_width )) && content_width=${#header_plain}
+  fi
+
+  # +6/+5: see the plain path+branch popup above for what each accounts for,
+  # including the extra row of breathing room the -max-height cap below
+  # still wins over whenever there is no room to spare for it.
+  popup_width=$((content_width + 6))
+  popup_height=$((count + header_lines + 2 + 2 + 1))
+
+  (( popup_width < 20 )) && popup_width=20
+  (( popup_height < 6 )) && popup_height=6
+  [ -n "$max_width" ] && (( popup_width > max_width )) && popup_width=$max_width
+  [ -n "$max_height" ] && (( popup_height > max_height )) && popup_height=$max_height
+  client_width=$(tmux display-message -p '#{client_width}')
+  client_height=$(tmux display-message -p '#{client_height}')
+  (( popup_width > client_width )) && popup_width=$client_width
+  (( popup_height > client_height )) && popup_height=$client_height
+
+  popup_cmd="dirsesh git"
+  [ -n "$brief" ] && popup_cmd="$popup_cmd -brief"
+  [ -n "$filter" ] && popup_cmd="$popup_cmd -filter"
+  [ -n "$fetch" ] && popup_cmd="$popup_cmd -fetch"
+
+  tmux popup -w "$popup_width" -h "$popup_height" -E "$popup_cmd"
+  exit $?
+fi
+
 selected=$(printf '%s\n' "$rows" \
-  | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "Repo > " "${fzf_header[@]}")
+  | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "$prompt_text" "${fzf_header[@]}")
 
 [ -n "$selected" ] || exit 0
 

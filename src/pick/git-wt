@@ -3,7 +3,13 @@
 # git-wt: choose a worktree of the current repository with fzf, and open a
 # tmux session there.
 #
-# Usage: dirsesh git-wt
+# Usage: dirsesh git-wt [-p] [-max-width=N] [-max-height=N]
+#   -p             Show the picker in a tmux popup, sized to fit the worktrees
+#                  listed
+#   -max-width=N   Cap the popup at N columns rather than growing to fit every
+#                  path and branch
+#   -max-height=N  Cap the popup at N rows rather than growing to fit every
+#                  worktree
 #
 # Must be run from inside a git repository (or another worktree).
 #
@@ -16,6 +22,15 @@
 # shows as (detached).
 #
 # Backing out opens nothing and exits 0.
+#
+# -p
+#
+# Sized to what it is about to list rather than a fixed size: taller with more
+# worktrees, wider with longer paths or branches. -max-width and -max-height
+# cap that growth -- past either, fzf's own scrolling and truncation take over
+# rather than the popup outgrowing the screen. Both require -p, since neither
+# means anything without a popup to size. The popup can also never exceed the
+# client's own size, capped or not.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
@@ -24,6 +39,37 @@ note() {
   # popup closes.
   if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
 }
+
+popup="" max_width="" max_height=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p) popup=1 ;;
+    -max-width=*) max_width="${1#-max-width=}" ;;
+    -max-height=*) max_height="${1#-max-height=}" ;;
+    *)
+      note "Error: Unknown option '$1' for 'dirsesh git-wt'"
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+if { [ -n "$max_width" ] || [ -n "$max_height" ]; } && [ -z "$popup" ]; then
+  note "Error: '-max-width'/'-max-height' only mean something with '-p'"
+  exit 1
+fi
+if [ -n "$max_width" ] && ! [[ "$max_width" =~ ^[0-9]{1,4}$ ]]; then
+  note "Error: -max-width must be a whole number from 0 to 9999: '$max_width'"
+  exit 1
+fi
+if [ -n "$max_height" ] && ! [[ "$max_height" =~ ^[0-9]{1,4}$ ]]; then
+  note "Error: -max-height must be a whole number from 0 to 9999: '$max_height'"
+  exit 1
+fi
+if [ -n "$popup" ] && [ -z "$TMUX" ]; then
+  note "Error: -p requires running inside tmux"
+  exit 1
+fi
 
 # fzf is how this prints its answer, so it is checked up front rather than
 # after the walk that finds the candidates.
@@ -50,10 +96,50 @@ fi
 # the header lines up with the rows on its own.
 path_label='worktree' branch_label='branch'
 max_path=${#path_label} max_branch=${#branch_label}
+count=0
 while IFS=$'\t' read -r wt branch; do
   (( ${#wt} > max_path )) && max_path=${#wt}
   (( ${#branch} > max_branch )) && max_branch=${#branch}
+  count=$((count + 1))
 done <<< "$worktree_data"
+
+# -p: size a popup to fit what is about to be listed and hand the actual
+# picking to a plain `git-wt` run inside it. -p is not forwarded, so that
+# inner run falls straight through to the fzf below instead of opening a
+# popup of its own.
+if [ -n "$popup" ]; then
+  # Width: the longest row fzf will draw -- path plus the gap plus the
+  # longest branch. +6 on top of that: 2 columns for the popup's border, 3
+  # for fzf's own chrome (a gutter down the left of every row plus a column
+  # of slack on the right, measured against fzf 0.74's default theme), and
+  # 1 more to spare.
+  popup_width=$((max_path + 2 + max_branch + 6))
+
+  # Height: one row per worktree, the header row, fzf's search line, and --
+  # separately -- the match-count line fzf draws above it by default.
+  # Falling short by even one row drops a worktree off the bottom of the
+  # list and puts fzf into scroll mode, which is also what eats into the
+  # width above. +2 for the popup's border, +1 more for a blank row of
+  # breathing room at the bottom -- the -max-height cap below still wins
+  # over it whenever there is no room to spare for it.
+  popup_height=$((count + 1 + 2 + 2 + 1))
+
+  # A sane minimum regardless of content, then the caller's own cap if it
+  # set one -- even below the minimum, since that is an explicit request
+  # rather than an edge case to guard against -- and finally the client's
+  # actual size, which nothing can be asked to exceed.
+  (( popup_width < 20 )) && popup_width=20
+  (( popup_height < 6 )) && popup_height=6
+  [ -n "$max_width" ] && (( popup_width > max_width )) && popup_width=$max_width
+  [ -n "$max_height" ] && (( popup_height > max_height )) && popup_height=$max_height
+  client_width=$(tmux display-message -p '#{client_width}')
+  client_height=$(tmux display-message -p '#{client_height}')
+  (( popup_width > client_width )) && popup_width=$client_width
+  (( popup_height > client_height )) && popup_height=$client_height
+
+  tmux popup -w "$popup_width" -h "$popup_height" -E "dirsesh git-wt"
+  exit $?
+fi
 
 fzf_input=$(echo "$worktree_data" | while IFS=$'\t' read -r wt branch; do
   printf '%s\t%-*s  \033[32m%-*s\033[0m\n' "$wt" "$max_path" "$wt" "$max_branch" "$branch"

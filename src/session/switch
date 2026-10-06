@@ -141,16 +141,21 @@ if [ -z "$session" ]; then
     # search line, and -- separately -- the match-count line fzf draws
     # above it by default. Falling short by even one row drops a session
     # off the bottom of the list and puts fzf into scroll mode, which is
-    # also what eats into the width above. +2 for the popup's border.
+    # also what eats into the width above. +2 for the popup's border, +1
+    # more for a blank row of breathing room at the bottom -- dropped again
+    # by the client clamp below whenever there is no room to spare for it.
     popup_width=$((content_width + 6))
-    popup_height=$((session_count + header_lines + 2 + 2))
+    popup_height=$((session_count + header_lines + 2 + 2 + 1))
 
+    (( popup_width < 20 )) && popup_width=20
+    (( popup_height < 6 )) && popup_height=6
+
+    # The client clamp runs last, after the floor above: a small client is
+    # the one ceiling nothing -- not even the minimum -- gets to exceed.
     client_width=$(tmux display-message -p '#{client_width}')
     client_height=$(tmux display-message -p '#{client_height}')
     (( popup_width > client_width )) && popup_width=$client_width
     (( popup_height > client_height )) && popup_height=$client_height
-    (( popup_width < 20 )) && popup_width=20
-    (( popup_height < 6 )) && popup_height=6
 
     popup_cmd="dirsesh switch"
     [ -z "$show_branch" ] && popup_cmd="$popup_cmd -b"
