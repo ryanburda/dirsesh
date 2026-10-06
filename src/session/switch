@@ -2,8 +2,9 @@
 #
 # switch: switch to another running tmux session, chosen with fzf.
 #
-# Usage: dirsesh switch [-b] [session]
+# Usage: dirsesh switch [-b] [-p] [session]
 #   -b       Hide the git branch each session's directory is on
+#   -p       Show the picker in a tmux popup, sized to fit the sessions listed
 #   session  Switch straight to this session instead of showing the picker.
 #
 # The session being switched from is not a destination, so it is left off the
@@ -38,10 +39,14 @@ branch_of() {
 }
 
 show_branch=1
-if [ "$1" = "-b" ]; then
-  show_branch=""
-  shift
-fi
+popup=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -b) show_branch=""; shift ;;
+    -p) popup=1; shift ;;
+    *) break ;;
+  esac
+done
 
 session="$1"
 
@@ -67,7 +72,8 @@ if [ -z "$session" ]; then
     current_path=$(tmux display-message -p '#{session_path}' 2>/dev/null)
   fi
 
-  fzf_args=(--cycle --prompt "Session > ")
+  prompt_text='> '
+  fzf_args=(--cycle --prompt "$prompt_text")
   if [ -n "$current" ]; then
     session_data=$(printf '%s\n' "$session_data" | awk -F'\t' -v cur="$current" '$1 != cur')
 
@@ -75,6 +81,82 @@ if [ -z "$session" ]; then
       notify "No other active sessions"
       exit 1
     fi
+  fi
+
+  # -p: rather than build the picker here, size a popup to fit what it is
+  # about to list and hand the actual picking to a plain `switch` run inside
+  # it. -p is not forwarded, so that inner run falls straight through to the
+  # fzf below instead of opening a popup of its own.
+  if [ -n "$popup" ]; then
+    if [ -z "$TMUX" ]; then
+      notify "Error: -p requires running inside tmux"
+      exit 1
+    fi
+
+    # The "session"/"branch" labels only count toward the width when
+    # branches are shown, since that is the one case where they are drawn
+    # as a header -- the plain list (-b) has no column of its own to line
+    # up, so nothing there is ever as wide as the labels.
+    max_name=0
+    max_branch=0
+    if [ -n "$show_branch" ]; then
+      name_label='session' branch_label='branch'
+      max_name=${#name_label}
+      max_branch=${#branch_label}
+    fi
+    [ -n "$current" ] && (( ${#current} > max_name )) && max_name=${#current}
+
+    session_count=0
+    while IFS=$'\t' read -r name path; do
+      (( ${#name} > max_name )) && max_name=${#name}
+      if [ -n "$show_branch" ]; then
+        branch=$(branch_of "$path")
+        (( ${#branch} > max_branch )) && max_branch=${#branch}
+      fi
+      session_count=$((session_count + 1))
+    done <<< "$session_data"
+
+    if [ -n "$current" ] && [ -n "$show_branch" ]; then
+      branch=$(branch_of "$current_path")
+      (( ${#branch} > max_branch )) && max_branch=${#branch}
+    fi
+
+    # Width: the longest row fzf will draw -- name plus, with branches
+    # shown, the gap and the longest branch -- or the prompt itself if that
+    # is somehow longer. +6 on top of that: 2 columns for the popup's
+    # border, 3 for fzf's own chrome (a gutter down the left of every row
+    # plus a column of slack on the right, measured against fzf 0.74's
+    # default theme), and 1 more to spare in case a wider pointer or a
+    # scrollbar asks for it.
+    content_width=$max_name
+    [ -n "$show_branch" ] && content_width=$((max_name + 2 + max_branch))
+    prompt_width=${#prompt_text}
+    (( prompt_width > content_width )) && content_width=$prompt_width
+
+    header_lines=0
+    [ -n "$show_branch" ] && header_lines=1
+    [ -n "$current" ] && header_lines=$((header_lines + 1))
+
+    # Height: one row per session, the header row(s) above them, fzf's
+    # search line, and -- separately -- the match-count line fzf draws
+    # above it by default. Falling short by even one row drops a session
+    # off the bottom of the list and puts fzf into scroll mode, which is
+    # also what eats into the width above. +2 for the popup's border.
+    popup_width=$((content_width + 6))
+    popup_height=$((session_count + header_lines + 2 + 2))
+
+    client_width=$(tmux display-message -p '#{client_width}')
+    client_height=$(tmux display-message -p '#{client_height}')
+    (( popup_width > client_width )) && popup_width=$client_width
+    (( popup_height > client_height )) && popup_height=$client_height
+    (( popup_width < 20 )) && popup_width=20
+    (( popup_height < 6 )) && popup_height=6
+
+    popup_cmd="dirsesh switch"
+    [ -z "$show_branch" ] && popup_cmd="$popup_cmd -b"
+
+    tmux popup -w "$popup_width" -h "$popup_height" -E "$popup_cmd"
+    exit $?
   fi
 
   if [ -n "$show_branch" ]; then
@@ -96,7 +178,9 @@ if [ -z "$session" ]; then
 
     header="$(printf '\033[2m%-*s\033[0m  \033[2;33m%s\033[0m' "$max_name" "$name_label" "$branch_label")"
     if [ -n "$current" ]; then
-      header="$(printf '%-*s  \033[33m%s\033[0m' "$max_name" "$current" "$(branch_of "$current_path")")"$'\n'"$header"
+      # Dim rather than the list's own colors: the current session is not
+      # a choice on this list, just context for it.
+      header="$(printf '\033[2m%-*s\033[0m  \033[2;33m%s\033[0m' "$max_name" "$current" "$(branch_of "$current_path")")"$'\n'"$header"
     fi
     fzf_args+=(--header "$header")
 
@@ -105,7 +189,7 @@ if [ -z "$session" ]; then
       | cut -f1)
   else
     if [ -n "$current" ]; then
-      fzf_args+=(--header "$(printf '\033[33m%s\033[0m' "$current")")
+      fzf_args+=(--header "$(printf '\033[2m%s\033[0m' "$current")")
     fi
     sessions=$(printf '%s\n' "$session_data" | cut -f1)
     session=$(echo "$sessions" | fzf "${fzf_args[@]}")

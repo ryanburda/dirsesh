@@ -29,8 +29,9 @@ sessions have logs at all.
 ## Usage
 
 ```bash
-dirsesh switch [-b] [session]           # Switch to another running session
+dirsesh switch [-b] [-p] [session]      # Switch to another running session
   -b                                    # Hide the git branch each session's directory is on
+  -p                                    # Show the picker in a tmux popup, sized to fit the sessions listed
   session                               # Switch straight to this one instead of picking
 dirsesh last                            # Switch back to the session you came from
 dirsesh kill [-b] [session]             # Kill a running session
@@ -62,6 +63,11 @@ destination — and names it in the header instead, so the list is only the plac
 `kill` lists every session, the current one included: killing the session you are sitting in is
 a thing you may well mean to do.
 
+`switch -p` opens the picker in a tmux popup instead of in place, sized to what it is about to
+show — taller with more sessions, wider with longer names (and, with branches shown, longer
+branches) — rather than a fixed size that is too small for a long name or too big for a short
+list. It needs to run inside tmux, since that is where the popup appears.
+
 ### `last`
 
 Switches back to where you came from, with a fallback ladder rather than a hard failure:
@@ -90,10 +96,13 @@ running.
 # ~/.config/tmux/tmux.conf
 
 bind-key \; run-shell -b "dirsesh last"
-bind-key s popup -E "dirsesh switch"
+bind-key s run-shell "dirsesh switch -p"
 bind-key k popup -E "dirsesh kill"
 bind-key l new-window -n dirsesh-logs "dirsesh logs"
 ```
+
+`switch` is bound through `run-shell` rather than `popup -E` so that its own `-p` sizes the
+popup, rather than tmux opening one of a fixed size for it to run in.
 
 These are shell commands, not tmux commands: what `popup -E` and `run-shell` run above is a
 shell, and the same string works in either place. There is nothing to type at tmux's own command
