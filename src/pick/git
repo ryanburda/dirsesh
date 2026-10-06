@@ -45,10 +45,11 @@
 # whether it is one, which is what makes linked worktrees show up alongside
 # ordinary clones: a worktree carries a .git *file* rather than a directory.
 #
-# Only directories with a working tree are listed. A bare repository has none,
-# so `git clone --bare repo.git` never appears, and neither does the container
-# of a bare checkout -- the ~/code/project holding .bare and its worktrees. The
-# worktrees themselves are listed, and are what you want a session at.
+# Only directories with a working tree are listed. A bare repository has
+# none, so `git clone --bare repo.git` never appears, and neither does the
+# container of a bare checkout -- the ~/code/project holding .bare and its
+# worktrees. The worktrees themselves are listed, and are what you want a
+# session at.
 #
 # Every repository is listed beside the branch it has checked out, the same two
 # columns `dirsesh git-wt` shows:
@@ -361,23 +362,23 @@ repo_paths() {
   # output is held back before the checks below start -- no git has run yet,
   # so it is only the walk that is waited on, and the walk is milliseconds.
   #
-  # A bare repository has no working tree to open a session in, and the
-  # container of a `git clone --bare` layout carries a .git of its own -- a
-  # file holding `gitdir: ./.bare`, or the bare repository sitting at .git
-  # itself -- so the walk finds it looking like any other repo. Only git can
-  # tell the two apart. The worktrees checked out beside it are found on their
-  # own, and are what you actually want to sit in. This drops a stray
-  # directory called .git that is no repository at all in the same breath:
-  # rev-parse refuses it just the same.
+  # The container of a bare checkout -- the ~/code/project holding a .bare
+  # and its worktrees -- carries a .git of its own, a plain directory rather
+  # than the gitdir-pointer file a linked worktree's .git is, so the walk
+  # finds it looking like any other repository. It is dropped without ever
+  # running git: a bare repository's own .git/config always has `bare = true`
+  # in it, so reading that one file -- itself just a bash builtin, no process
+  # spawned -- is enough to tell the two apart.
   #
-  # Checked 8 at a time rather than one at a time: each rev-parse costs about
-  # two milliseconds, which is nothing until it is hundreds of repositories in
-  # a row, and that wait is spent before the picker shows anything either way
-  # -- fzf is not opened on the first path until this whole function returns.
-  # Running the checks in parallel scrambles the order they finish in, but
-  # nothing downstream depends on that order: the -brief/-filter callers sort
-  # the decorated rows themselves once every repository is inspected, and fzf
-  # does not care what order candidates arrive in.
+  # Checked 8 at a time rather than one at a time: each symbolic-ref costs
+  # about two milliseconds, which is nothing until it is hundreds of
+  # repositories in a row, and that wait is spent before the picker shows
+  # anything either way -- fzf is not opened on the first path until this
+  # whole function returns. Running the checks in parallel scrambles the
+  # order they finish in, but nothing downstream depends on that order: the
+  # -brief/-filter callers sort the decorated rows themselves once every
+  # repository is inspected, and fzf does not care what order candidates
+  # arrive in.
   find "$root" "${maxdepth[@]}" \( -name .git -o -name node_modules \) -prune -print -o \( ! -path "$root" -a -name '.*' \) -prune 2>/dev/null \
     | grep '/\.git$' \
     | sed 's#/\.git$##' \
@@ -390,7 +391,17 @@ repo_paths() {
               # directory this was started from, so a root with no repositories
               # under it would report one.
               [ -n "$1" ] || exit 0
-              [ "$(git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || exit 0
+
+              # A bare repository has a config but no working tree to open a
+              # session in. Read rather than asked: a linked worktree carries
+              # a .git *file*, so this is skipped for it already, and a
+              # repository with no config at all (corrupt, or deleted since
+              # the walk) is left for symbolic-ref below to fail on instead.
+              if [ -f "$1/.git/config" ]; then
+                config=$(< "$1/.git/config")
+                [[ "$config" == *"bare = true"* ]] && exit 0
+              fi
+
               if [ -z "$PICK_REPO_BRANCH" ]; then
                 printf "%s\n" "$1"
                 exit 0
@@ -407,8 +418,17 @@ repo_paths() {
 # -- and the walk that finds it is milliseconds, the branch one git process per
 # repository beside the check that already confirmed it was one. Sorted here
 # rather than as it is found: the checks run in parallel and finish out of order.
+#
+# PICK_GIT_CACHE_ROWS, set only by this script's own -p, is the walk a popup's
+# sizing pass already paid for, handed to the plain run inside the popup so it
+# is not paid again -- that walk is the whole of the wait, and a popup would
+# otherwise run it twice over for one list.
 if [ -z "$brief" ] && [ -z "$filter" ]; then
-  rows=$(repo_paths branch | LC_ALL=C sort)
+  if [ -n "$PICK_GIT_CACHE_ROWS" ] && [ -f "$PICK_GIT_CACHE_ROWS" ]; then
+    rows=$(cat "$PICK_GIT_CACHE_ROWS")
+  else
+    rows=$(repo_paths branch | LC_ALL=C sort)
+  fi
 
   if [ -z "$rows" ]; then
     note "No git repositories found under $root"
@@ -442,13 +462,16 @@ if [ -z "$brief" ] && [ -z "$filter" ]; then
     # the popup's border, 3 for fzf's own chrome (a gutter down the left of
     # every row plus a column of slack on the right, measured against fzf
     # 0.74's default theme), and 1 more to spare.
+    # Stripped once for the whole block rather than once per row: a fork
+    # and a sed process per repository is the kind of cost that disappears
+    # against the walk above for a handful of repositories and adds up to
+    # real time once there are dozens.
     content_width=0
     count=0
-    while IFS=$'\t' read -r _ display; do
-      plain=$(strip_ansi "$display")
+    while IFS=$'\t' read -r _ plain; do
       (( ${#plain} > content_width )) && content_width=${#plain}
       count=$((count + 1))
-    done <<< "$fzf_input"
+    done < <(strip_ansi "$fzf_input")
     header_plain=$(strip_ansi "$header")
     (( ${#header_plain} > content_width )) && content_width=${#header_plain}
     popup_width=$((content_width + 6))
@@ -475,7 +498,16 @@ if [ -z "$brief" ] && [ -z "$filter" ]; then
     (( popup_width > client_width )) && popup_width=$client_width
     (( popup_height > client_height )) && popup_height=$client_height
 
-    tmux popup -w "$popup_width" -h "$popup_height" -E "dirsesh git"
+    # Handed to the inner run as PICK_GIT_CACHE_ROWS, so the walk that
+    # built $rows is not repeated inside the popup. tmux popup -E blocks
+    # until the popup closes, so the cleanup below always runs right after
+    # it is no longer needed -- the trap is only for an early exit.
+    rows_cache=$(mktemp)
+    trap 'rm -f "$rows_cache"' EXIT
+    printf '%s\n' "$rows" > "$rows_cache"
+
+    tmux popup -w "$popup_width" -h "$popup_height" \
+      -E "PICK_GIT_CACHE_ROWS=$(printf '%q' "$rows_cache") dirsesh git"
     exit $?
   fi
 
@@ -492,25 +524,39 @@ fi
 # -brief and -filter both have to open every repository before anything can be
 # shown -- one to decorate the rows, the other to know which rows there are --
 # so this half collects the list rather than streaming it.
-dirs=$(repo_paths)
+#
+# PICK_GIT_CACHE_DIRS/PICK_GIT_CACHE_ROWS, set only by this script's own -p,
+# are the walk and the per-repository inspection a popup's sizing pass already
+# paid for, handed to the plain run inside the popup so neither is paid again
+# -- git_repo_row's `git status`/`git diff` per repository is the whole of the
+# wait, and a popup would otherwise run it twice over for one list.
+if [ -n "$PICK_GIT_CACHE_DIRS" ] && [ -f "$PICK_GIT_CACHE_DIRS" ]; then
+  dirs=$(cat "$PICK_GIT_CACHE_DIRS")
+else
+  dirs=$(repo_paths)
+fi
 
 if [ -z "$dirs" ]; then
   note "No git repositories found under $root"
   exit 1
 fi
 
-# Inspected 8 at a time: under -fetch each job opens a remote connection, and
-# forking the whole list at once can hit the process limit. NUL separation so
-# repository paths with spaces survive. `|| true` because a repository -filter
-# drops is the ordinary case, not an xargs failure.
-export -f git_repo_row
-export PICK_REPO_BRIEF="$brief" PICK_REPO_FILTER="$filter" PICK_REPO_FETCH="$fetch"
-rows=$(
-  printf '%s\n' "$dirs" | tr '\n' '\0' \
-    | xargs -0 -P 8 -n 1 \
-            bash -c 'git_repo_row "$1" || true' _ \
-    | LC_ALL=C sort
-)
+if [ -n "$PICK_GIT_CACHE_ROWS" ] && [ -f "$PICK_GIT_CACHE_ROWS" ]; then
+  rows=$(cat "$PICK_GIT_CACHE_ROWS")
+else
+  # Inspected 8 at a time: under -fetch each job opens a remote connection,
+  # and forking the whole list at once can hit the process limit. NUL
+  # separation so repository paths with spaces survive. `|| true` because a
+  # repository -filter drops is the ordinary case, not an xargs failure.
+  export -f git_repo_row
+  export PICK_REPO_BRIEF="$brief" PICK_REPO_FILTER="$filter" PICK_REPO_FETCH="$fetch"
+  rows=$(
+    printf '%s\n' "$dirs" | tr '\n' '\0' \
+      | xargs -0 -P 8 -n 1 \
+              bash -c 'git_repo_row "$1" || true' _ \
+      | LC_ALL=C sort
+  )
+fi
 
 if [ -z "$rows" ]; then
   checked=$(printf '%s\n' "$dirs" | wc -l | tr -d ' ')
@@ -539,13 +585,14 @@ prompt_text='Repo > '
 # counts vary row to row -- so each row is measured on its own rather than
 # off a single max_path/max_branch.
 if [ -n "$popup" ]; then
+  # Stripped once for the whole block rather than once per row: see the
+  # plain path+branch popup above for why that is worth doing.
   content_width=${#prompt_text}
   count=0
-  while IFS=$'\t' read -r _ display; do
-    plain=$(strip_ansi "$display")
+  while IFS=$'\t' read -r _ plain; do
     (( ${#plain} > content_width )) && content_width=${#plain}
     count=$((count + 1))
-  done <<< "$rows"
+  done < <(strip_ansi "$rows")
 
   header_lines=0
   if [ -n "$filter" ]; then
@@ -569,7 +616,17 @@ if [ -n "$popup" ]; then
   (( popup_width > client_width )) && popup_width=$client_width
   (( popup_height > client_height )) && popup_height=$client_height
 
-  popup_cmd="dirsesh git"
+  # Handed to the inner run as PICK_GIT_CACHE_DIRS/PICK_GIT_CACHE_ROWS, so
+  # neither the walk that built $dirs nor the inspection that built $rows is
+  # repeated inside the popup. tmux popup -E blocks until the popup closes,
+  # so the cleanup below always runs right after they are no longer needed
+  # -- the trap is only for an early exit.
+  dirs_cache=$(mktemp) rows_cache=$(mktemp)
+  trap 'rm -f "$dirs_cache" "$rows_cache"' EXIT
+  printf '%s\n' "$dirs" > "$dirs_cache"
+  printf '%s\n' "$rows" > "$rows_cache"
+
+  popup_cmd="PICK_GIT_CACHE_DIRS=$(printf '%q' "$dirs_cache") PICK_GIT_CACHE_ROWS=$(printf '%q' "$rows_cache") dirsesh git"
   [ -n "$brief" ] && popup_cmd="$popup_cmd -brief"
   [ -n "$filter" ] && popup_cmd="$popup_cmd -filter"
   [ -n "$fetch" ] && popup_cmd="$popup_cmd -fetch"
