@@ -90,9 +90,11 @@ maxdepth=(-maxdepth "$depth")
 # exempts the starting point from it, because a root that is itself hidden
 # would otherwise be pruned before the walk began and the picker would open on
 # nothing: DIRSESH_LS_ROOT="$HOME/.config" is a reasonable thing to want.
+header=$(printf '\033[2m%s\033[0m' "directory")
+
 selected=$(find "$root" "${maxdepth[@]}" \
   \( ! -path "$root" -a -name '.*' \) -prune -o -type d -print \
-  | fzf --cycle --header "directory")
+  | fzf --cycle --header "$header")
 
 # Backing out is not a failure: say nothing and succeed.
 [ -n "$selected" ] || exit 0

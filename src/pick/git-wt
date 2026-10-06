@@ -48,7 +48,7 @@ fi
 # Header labels are measured alongside the values so short columns still widen
 # to fit them. fzf indents --header by the two columns its pointer takes, so
 # the header lines up with the rows on its own.
-path_label='path' branch_label='branch'
+path_label='worktree' branch_label='branch'
 max_path=${#path_label} max_branch=${#branch_label}
 while IFS=$'\t' read -r wt branch; do
   (( ${#wt} > max_path )) && max_path=${#wt}
@@ -58,12 +58,12 @@ done <<< "$worktree_data"
 fzf_input=$(echo "$worktree_data" | while IFS=$'\t' read -r wt branch; do
   printf '%s\t%-*s  \033[32m%-*s\033[0m\n' "$wt" "$max_path" "$wt" "$max_branch" "$branch"
 done)
-header=$(printf '%-*s  %s' "$max_path" "$path_label" "$branch_label")
+header=$(printf '\033[2m%-*s\033[0m  \033[2;32m%s\033[0m' "$max_path" "$path_label" "$branch_label")
 
 # The path rides along in a first column fzf is told not to display, so the
 # columns can be coloured without the selection having to be parsed back out.
 selected=$(echo "$fzf_input" \
-  | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "Worktree > " --header "$header")
+  | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --header "$header")
 
 [ -n "$selected" ] || exit 0
 

@@ -375,7 +375,7 @@ if [ -z "$brief" ] && [ -z "$filter" ]; then
   # Header labels are measured alongside the values so a short column still
   # widens to fit them. fzf indents --header by the two columns its pointer
   # takes, so the header lines up with the rows on its own.
-  path_label='path' branch_label='branch'
+  path_label='repo' branch_label='branch'
   max_path=${#path_label}
   while IFS=$'\t' read -r dir branch; do
     (( ${#dir} > max_path )) && max_path=${#dir}
@@ -386,10 +386,10 @@ if [ -z "$brief" ] && [ -z "$filter" ]; then
   fzf_input=$(while IFS=$'\t' read -r dir branch; do
     printf '%s\t%-*s  \033[32m%s\033[0m\n' "$dir" "$max_path" "$dir" "$branch"
   done <<< "$rows")
-  header=$(printf '%-*s  %s' "$max_path" "$path_label" "$branch_label")
+  header=$(printf '\033[2m%-*s\033[0m  \033[2;32m%s\033[0m' "$max_path" "$path_label" "$branch_label")
 
   selected=$(printf '%s\n' "$fzf_input" \
-    | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "Repo > " --header "$header")
+    | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --header "$header")
 
   # Backing out is not a failure: say nothing and succeed.
   [ -n "$selected" ] || exit 0
