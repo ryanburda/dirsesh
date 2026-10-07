@@ -162,6 +162,7 @@ and each one stands in for a command you would otherwise write by hand.
   dirsesh ls                                     # Choose a directory under $HOME, and open a session there
     $DIRSESH_LS_ROOT                             # Where to search, instead of $HOME
     $DIRSESH_LS_MAX_DEPTH                        # How deep to search, instead of no limit
+    $DIRSESH_LS_EXCLUDE                          # Colon-separated directories to leave out
   dirsesh git [-brief] [-filter] [-fetch]        # Choose a git repository under $HOME, and open a session there
     -brief                                       # Show what each repository has waiting, beside its path
     -filter                                      # List only the repositories that have something waiting

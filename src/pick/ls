@@ -37,6 +37,19 @@
 #
 # It is counted one level shallower than DIRSESH_GIT_MAX_DEPTH, which has to
 # reach a repository's .git rather than the repository itself.
+#
+# DIRSESH_LS_EXCLUDE
+#
+# Colon-separated directories to leave out of the walk entirely, along with
+# everything under them -- the same treatment hidden directories get:
+#
+#   DIRSESH_LS_EXCLUDE="$HOME/go:$HOME/Library" dirsesh ls
+#
+# Each entry is resolved the same way DIRSESH_LS_ROOT is, so `~/go` works too.
+# Matched by path rather than by name, so excluding `~/code/vendor` leaves
+# `~/elsewhere/vendor` alone. An entry naming somewhere that does not exist is
+# skipped rather than an error, since excluding an already-absent directory is
+# a no-op either way.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
@@ -85,15 +98,37 @@ fi
 maxdepth=(-maxdepth "$depth")
 [ "$depth" -eq 0 ] && maxdepth=()
 
+# Each DIRSESH_LS_EXCLUDE entry, resolved the same way root is above. An entry
+# that doesn't resolve to a real directory is dropped rather than failing the
+# whole walk, since excluding somewhere already absent is a no-op anyway.
+excludes=()
+if [ -n "$DIRSESH_LS_EXCLUDE" ]; then
+  IFS=: read -ra exclude_entries <<< "$DIRSESH_LS_EXCLUDE"
+  for entry in "${exclude_entries[@]}"; do
+    [ -n "$entry" ] || continue
+    resolved=$(CDPATH= cd -- "$entry" 2> /dev/null && pwd) || continue
+    excludes+=("$resolved")
+  done
+fi
+
 # The prune keeps hidden directories -- caches like ~/.cache and ~/.npm, but
 # also ~/.config, ~/.ssh, etc. -- out of the walk entirely. `! -path "$root"`
 # exempts the starting point from it, because a root that is itself hidden
 # would otherwise be pruned before the walk began and the picker would open on
 # nothing: DIRSESH_LS_ROOT="$HOME/.config" is a reasonable thing to want.
+#
+# Each resolved DIRSESH_LS_EXCLUDE entry is ORed in beside it, matched by
+# -path so only that directory (and what's under it) is pruned, not every
+# directory sharing its name elsewhere in the tree.
+prune=(\( ! -path "$root" -a -name '.*' \))
+for exclude in "${excludes[@]}"; do
+  prune+=(-o -path "$exclude")
+done
+
 header=$(printf '\033[2m%s\033[0m' "directory")
 
 selected=$(find "$root" "${maxdepth[@]}" \
-  \( ! -path "$root" -a -name '.*' \) -prune -o -type d -print \
+  \( "${prune[@]}" \) -prune -o -type d -print \
   | fzf --cycle --header "$header")
 
 # Backing out is not a failure: say nothing and succeed.

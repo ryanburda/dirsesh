@@ -47,6 +47,7 @@ the list — is the difference between the two columns.
 dirsesh ls                              # Choose a directory under $HOME, and open a session there
   $DIRSESH_LS_ROOT                      # Where to search, instead of $HOME
   $DIRSESH_LS_MAX_DEPTH                 # How deep to search, instead of no limit
+  $DIRSESH_LS_EXCLUDE                   # Colon-separated directories to leave out
 dirsesh git [-brief] [-filter] [-fetch]
                                         # Choose a git repository under $HOME, and open a session there
   -brief                                # Show what each repository has waiting, beside its path
@@ -107,6 +108,20 @@ walk is the whole of the wait.
 
 It is counted one level shallower than [`DIRSESH_GIT_MAX_DEPTH`](#dirsesh_git_max_depth), which
 has to reach a repository's `.git` rather than the repository itself.
+
+#### `DIRSESH_LS_EXCLUDE`
+
+Colon-separated directories to leave out of the walk entirely, along with everything under them —
+the same treatment hidden directories get:
+
+```bash
+DIRSESH_LS_EXCLUDE="$HOME/go:$HOME/Library" dirsesh ls
+```
+
+Each entry is resolved the same way [`DIRSESH_LS_ROOT`](#dirsesh_ls_root) is, so `~/go` works too.
+Matched by path rather than by name, so excluding `~/code/vendor` leaves `~/elsewhere/vendor`
+alone. An entry naming somewhere that does not exist is skipped rather than an error, since
+excluding an already-absent directory is a no-op either way.
 
 Both are worth setting for good rather than typing each time — see
 [Setting them for good](#setting-them-for-good).
@@ -323,8 +338,9 @@ when you are looking for a directory, a bookmark for when you already know which
 
 ## Setting them for good
 
-The four variables above — `DIRSESH_LS_ROOT`, `DIRSESH_LS_MAX_DEPTH`, `DIRSESH_GIT_ROOT` and
-`DIRSESH_GIT_MAX_DEPTH` — are meant to be set once rather than typed each time.
+The five variables above — `DIRSESH_LS_ROOT`, `DIRSESH_LS_MAX_DEPTH`, `DIRSESH_LS_EXCLUDE`,
+`DIRSESH_GIT_ROOT` and `DIRSESH_GIT_MAX_DEPTH` — are meant to be set once rather than typed each
+time.
 
 **Export them from the file your shell reads for _every_ shell, not just interactive ones.** For
 zsh that is `~/.zshenv`; for bash, `~/.bash_profile` (or `~/.profile`):
@@ -334,6 +350,7 @@ zsh that is `~/.zshenv`; for bash, `~/.bash_profile` (or `~/.profile`):
 
 export DIRSESH_LS_ROOT="$HOME"
 export DIRSESH_LS_MAX_DEPTH=4
+export DIRSESH_LS_EXCLUDE="$HOME/go"
 export DIRSESH_GIT_ROOT="$HOME/code"
 export DIRSESH_GIT_MAX_DEPTH=3
 ```
