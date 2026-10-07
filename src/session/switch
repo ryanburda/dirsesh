@@ -77,9 +77,11 @@ if [ -z "$session" ]; then
   if [ -n "$current" ]; then
     session_data=$(printf '%s\n' "$session_data" | awk -F'\t' -v cur="$current" '$1 != cur')
 
+    # Being the only session left is not a failure -- there is simply nowhere
+    # to switch to -- so this says so and exits clean.
     if [ -z "$session_data" ]; then
       notify "No other active sessions"
-      exit 1
+      exit 0
     fi
   fi
 
